@@ -37,6 +37,7 @@ La CI GitHub (`.github/workflows/ci.yml`) exécute les mêmes vérifications et 
 | Outils                      | `1` à `9`                                   | boutons                |
 | Taille du pinceau           | `[` `]`                                     | curseur                |
 | Calque humidité / fertilité | `H`                                         | boutons                |
+| Bulles d'activité           | `B`                                         | bouton                 |
 | Pause                       | `P`                                         | bouton                 |
 
 ## Organisation

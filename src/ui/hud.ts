@@ -10,6 +10,8 @@ export interface HudState {
   brush: number;
   seaLevel: number;
   paused: boolean;
+  /** Bulles d'activité au-dessus des habitants. */
+  bubbles: boolean;
 }
 
 export interface HudActions {
@@ -45,6 +47,7 @@ export class Hud {
     brush: 4,
     seaLevel: 0,
     paused: false,
+    bubbles: true,
   };
 
   constructor(private readonly actions: HudActions) {
@@ -90,6 +93,7 @@ export class Hud {
     $('zoomIn').addEventListener('click', () => actions.zoom(1));
     $('zoomOut').addEventListener('click', () => actions.zoom(-1));
     $('pause').addEventListener('click', () => this.togglePause());
+    $('bubbles').addEventListener('click', () => this.toggleBubbles());
     $('regen').addEventListener('click', () => actions.regenerate());
 
     this.setTool(this.state.tool);
@@ -116,6 +120,9 @@ export class Hud {
         return true;
       case ']':
         this.setBrush(this.state.brush + 0.5);
+        return true;
+      case 'b':
+        this.toggleBubbles();
         return true;
       case 'p':
         this.togglePause();
@@ -159,6 +166,11 @@ export class Hud {
     this.state.brush = Math.min(14, Math.max(1, v));
     $<HTMLInputElement>('brush').value = String(this.state.brush);
     $('brushOut').textContent = String(this.state.brush);
+  }
+
+  toggleBubbles(): void {
+    this.state.bubbles = !this.state.bubbles;
+    $('bubbles').setAttribute('aria-pressed', String(this.state.bubbles));
   }
 
   togglePause(): void {

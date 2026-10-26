@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { People, PEOPLE } from '../src/sim/people';
+import { Activity, activityOf, Carry, People, PEOPLE, Task } from '../src/sim/people';
 import { Simulation } from '../src/sim/simulation';
 import { Soil } from '../src/sim/soils';
 import { World } from '../src/sim/world';
@@ -95,5 +95,40 @@ describe('People', () => {
     const people = new People(w, 5);
     for (let k = 0; k < PEOPLE.maxVillagers + 20; k++) people.settle(20, 20);
     expect(people.population).toBe(PEOPLE.maxVillagers);
+  });
+
+  it("expose l'activité du moment pour les bulles", () => {
+    const w = plain();
+    const people = new People(w, 6);
+    const v = people.settle(20, 20)!;
+    v.task = Task.Chop;
+    expect(activityOf(v)).toBe(Activity.Chop);
+    v.task = Task.Prepare;
+    v.working = true;
+    v.terracing = true;
+    expect(activityOf(v)).toBe(Activity.Terrace);
+    v.terracing = false;
+    expect(activityOf(v)).toBe(Activity.Till);
+    v.task = Task.Return;
+    v.carry = Carry.Grain;
+    expect(activityOf(v)).toBe(Activity.Grain);
+    v.task = Task.Wander;
+    expect(activityOf(v)).toBe(Activity.None);
+    v.hunger = 1;
+    expect(activityOf(v)).toBe(Activity.Hungry);
+  });
+
+  it('signale le terrassement pendant la préparation d’une parcelle en pente', () => {
+    const w = plain();
+    for (let z = 0; z < w.n; z++) for (let x = 0; x < w.n; x++) w.height[w.index(x, z)] = 2 + x * 0.3;
+    const people = new People(w, 2);
+    people.settle(20, 20)!.tribe.grain = 50;
+    const seen = new Set<number>();
+    for (let t = 0; t < 300; t++) {
+      people.step();
+      for (const v of people.villagers) seen.add(activityOf(v));
+    }
+    expect(seen.has(Activity.Terrace)).toBe(true);
+    expect(seen.has(Activity.Sow)).toBe(true);
   });
 });

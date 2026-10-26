@@ -112,6 +112,7 @@ function boot(): void {
       simAlpha: Math.min(1, simAccum * SIM_HZ),
       brush: hit ? { x: hit[0], z: hit[2], radius: ui.brush, color } : null,
       overlay: ui.overlay,
+      bubbles: ui.bubbles,
     });
 
     frames++;

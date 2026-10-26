@@ -1,15 +1,18 @@
 import { BASE, H_MAX, H_MIN, SNOW_LINE } from '../config';
 import { clamp } from '../core/math';
 import { hash2 } from '../core/noise';
-import { Carry, PEOPLE } from '../sim/people';
+import { ACTIVITIES, activityOf, Activity, Carry, PEOPLE, type ActivityId } from '../sim/people';
 import type { Simulation } from '../sim/simulation';
 import { TREE_KINDS } from '../sim/soils';
 import { RAIN } from '../sim/weather';
 import type { World } from '../sim/world';
 import { FAR, type CameraFrame } from './camera';
 import { ATTRIB, createPositionVAO, createProgram, createTexture, hexToRgb, type Program } from './gl';
-import { buildPropMeshes, buildTreeMeshes } from './meshes';
+import { BUBBLE_H, BUBBLE_W, buildBubbleAtlas } from './icons';
+import { buildPropMeshes, buildTreeMeshes, CHIMNEY } from './meshes';
 import { SKY, rampUniformData } from './palette';
+import bubbleFrag from './shaders/bubble.frag?raw';
+import bubbleVert from './shaders/bubble.vert?raw';
 import commonGlsl from './shaders/common.glsl?raw';
 import postFrag from './shaders/post.frag?raw';
 import postVert from './shaders/post.vert?raw';
@@ -37,6 +40,8 @@ export interface FrameParams {
   simAlpha: number;
   brush: { x: number; z: number; radius: number; color: string } | null;
   overlay: OverlayId;
+  /** Bulles d'activité au-dessus des habitants. */
+  bubbles: boolean;
 }
 
 /** Gouttes de pluie dessinées au plus, tous nuages confondus. */
@@ -46,6 +51,16 @@ const VILLAGER_MIN_PX = 3;
 const VILLAGER_HEIGHT = 0.7;
 const MAX_HOUSES = 1024;
 const HOUSE_SCALE = 1.25;
+/** Bouffées de fumée par cheminée, durée de leur ascension (s) et hauteur atteinte (unités monde). */
+const SMOKE_PUFFS = 8;
+const SMOKE_LIFE = 3.2;
+const SMOKE_RISE = 2.6;
+/** Trame des bouffées selon leur âge : la fumée se dissipe en montant. */
+const SMOKE_DITHER = [0.2, 0.45, 0.7] as const;
+/** Zoom minimal (pixels par unité) pour afficher les bulles : en deçà, elles masqueraient le village. */
+const BUBBLE_MIN_PPU = 4;
+/** Durée du petit saut d'une bulle quand l'activité change (secondes). */
+const BUBBLE_HOP = 0.3;
 
 /** Un maillage dessiné en instanciation ; par instance : position (x, y, z), échelle, graine. */
 interface InstanceBatch {
@@ -76,6 +91,11 @@ export class Renderer {
   private readonly progWorld: Program;
   private readonly progTree: Program;
   private readonly progPost: Program;
+  private readonly progBubble: Program;
+  private readonly bubbleAtlas: WebGLTexture;
+  private readonly bubbles: InstanceBatch;
+  /** Dernière activité affichée par habitant, et depuis quand : fait sauter la bulle au changement. */
+  private bubbleSeen = new Map<number, { activity: ActivityId; since: number }>();
 
   private readonly terrainPos: Float32Array;
   private readonly indexCount: number;
@@ -98,6 +118,8 @@ export class Renderer {
   private readonly villagers: InstanceBatch[];
   private readonly houses: InstanceBatch;
   private readonly clouds: InstanceBatch;
+  /** Fumée des cheminées, une série par tranche d'âge (voir SMOKE_DITHER). */
+  private readonly smoke: InstanceBatch[];
   private readonly drops: InstanceBatch;
 
   private fbo: WebGLFramebuffer | null = null;
@@ -126,6 +148,7 @@ export class Renderer {
     this.progWorld = createProgram(gl, vertex(worldVert), fragment(worldFrag), 'world');
     this.progTree = createProgram(gl, vertex(treeVert), fragment(treeFrag), 'tree');
     this.progPost = createProgram(gl, vertex(postVert), fragment(postFrag), 'post');
+    this.progBubble = createProgram(gl, vertex(bubbleVert), fragment(bubbleFrag), 'bubble');
     const ramps = rampUniformData();
     for (const p of [this.progWorld, this.progTree, this.progPost]) {
       gl.useProgram(p.handle);
@@ -169,7 +192,13 @@ export class Renderer {
     );
     this.houses = this.createBatch(props.house, MAX_HOUSES);
     this.clouds = this.createBatch(props.cloud, RAIN.maxClouds);
+    this.smoke = SMOKE_DITHER.map(() => this.createBatch(props.smoke, MAX_HOUSES * SMOKE_PUFFS));
     this.drops = this.createBatch(props.drop, MAX_DROPS);
+    const quad = new Float32Array([0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0]);
+    this.bubbles = this.createBatch(quad, PEOPLE.maxVillagers);
+    const atlasW = BUBBLE_W * ACTIVITIES;
+    this.bubbleAtlas = createTexture(gl, atlasW, BUBBLE_H, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, atlasW, BUBBLE_H, gl.RGBA, gl.UNSIGNED_BYTE, buildBubbleAtlas());
 
     const empty = gl.createVertexArray();
     if (!empty) throw new Error('Création de VAO impossible');
@@ -293,9 +322,28 @@ export class Renderer {
     // Pluie et nuages : sans écriture de profondeur, pour ne pas tracer de contours dans la trame.
     gl.depthMask(false);
     this.draw(this.drops);
+    SMOKE_DITHER.forEach((d, k) => {
+      gl.uniform1f(t.uniform('u_dither'), d);
+      this.draw(this.smoke[k]);
+    });
     gl.uniform1f(t.uniform('u_dither'), 0.45);
     this.draw(this.clouds);
     gl.depthMask(true);
+
+    if (p.bubbles && cam.pixelsPerUnit >= BUBBLE_MIN_PPU && this.bubbles.count) {
+      // Bulles au premier plan : pas de test de profondeur, profondeur minimale écrite (aucun contour interne).
+      const bq = this.progBubble;
+      gl.disable(gl.DEPTH_TEST);
+      gl.useProgram(bq.handle);
+      gl.uniformMatrix4fv(bq.uniform('u_vp'), false, cam.viewProj);
+      gl.uniform2f(bq.uniform('u_low'), this.lowWidth, this.lowHeight);
+      gl.uniform2f(bq.uniform('u_cell'), BUBBLE_W, BUBBLE_H);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.bubbleAtlas);
+      gl.uniform1i(bq.uniform('u_atlas'), 0);
+      this.draw(this.bubbles);
+      gl.enable(gl.DEPTH_TEST);
+    }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -491,6 +539,29 @@ export class Renderer {
     batch.count++;
   }
 
+  /** Bouffées sans état : chacune monte, grossit et dérive avec le vent selon le temps. */
+  private pushSmoke(cell: number, x: number, z: number, cx: number, cz: number, time: number): void {
+    const base = this.world.height[cell] - 0.05;
+    const sx = x + cx * HOUSE_SCALE;
+    const sz = z + cz * HOUSE_SCALE;
+    const sy = base + CHIMNEY.top * HOUSE_SCALE;
+    const wind = Math.hypot(RAIN.windX, RAIN.windZ);
+    for (let k = 0; k < SMOKE_PUFFS; k++) {
+      const age = (time / SMOKE_LIFE + k / SMOKE_PUFFS + hash2(cell, k, 61) * 0.1) % 1;
+      const drift = age * age * 1.4;
+      const wobble = Math.sin(time * 2 + k * 1.7 + cell) * 0.08 * age;
+      const band = Math.min(SMOKE_DITHER.length - 1, Math.floor(age * SMOKE_DITHER.length));
+      this.push(
+        this.smoke[band],
+        sx + (RAIN.windX / wind) * drift + wobble,
+        sy + age * SMOKE_RISE,
+        sz + (RAIN.windZ / wind) * drift - wobble,
+        0.13 + 0.3 * age,
+        hash2(cell, k, 67),
+      );
+    }
+  }
+
   /** Habitants, maisons, nuages et gouttes : reconstruits à chaque image (positions interpolées). */
   private uploadActors(ppu: number, p: FrameParams): void {
     const w = this.world;
@@ -498,6 +569,8 @@ export class Renderer {
     const a = p.simAlpha;
 
     for (const b of this.villagers) b.count = 0;
+    this.bubbles.count = 0;
+    const seen2 = new Map<number, { activity: ActivityId; since: number }>();
     const vs = Math.max(1, VILLAGER_MIN_PX / (VILLAGER_HEIGHT * ppu));
     for (const v of people.villagers) {
       const x = v.px + (v.x - v.px) * a;
@@ -507,15 +580,33 @@ export class Renderer {
       const bob = moving || v.working ? Math.abs(Math.sin(p.time * 11 + v.id)) * 0.06 * vs : 0;
       const seed = (((-v.heading / (Math.PI * 2)) % 1) + 1) % 1;
       const batch = this.villagers[v.carry] ?? this.villagers[Carry.None];
-      this.push(batch, x, w.heightAt(x, z) + bob, z, vs, seed);
+      const ground = w.heightAt(x, z);
+      this.push(batch, x, ground + bob, z, vs, seed);
+
+      const activity = activityOf(v);
+      if (activity === Activity.None) continue;
+      const seen = this.bubbleSeen.get(v.id);
+      const since = seen && seen.activity === activity ? seen.since : p.time;
+      seen2.set(v.id, { activity, since });
+      const hop = p.time - since < BUBBLE_HOP ? 2 : 0;
+      this.push(this.bubbles, x, ground + (VILLAGER_HEIGHT + 0.15) * vs, z, activity, hop);
     }
+    this.bubbleSeen = seen2;
     for (const b of this.villagers) this.upload(b);
+    this.upload(this.bubbles);
 
     this.houses.count = 0;
+    for (const s of this.smoke) s.count = 0;
+    // Rotation des maisons (graine 0.125 = un huitième de tour), comme dans tree.vert.
+    const ang = 0.125 * Math.PI * 2;
+    const chimneyX = Math.cos(ang) * CHIMNEY.x + Math.sin(ang) * CHIMNEY.z;
+    const chimneyZ = -Math.sin(ang) * CHIMNEY.x + Math.cos(ang) * CHIMNEY.z;
     for (const tribe of people.tribes) {
       for (const h of tribe.houses) {
         const x = h.cell % w.n;
         const z = Math.floor(h.cell / w.n);
+        // Un feu brûle dans les maisons achevées tant que le village a du bois.
+        if (h.progress >= 1 && tribe.wood > 0) this.pushSmoke(h.cell, x, z, chimneyX, chimneyZ, p.time);
         // Les chantiers sortent de terre au fil de la construction.
         this.push(
           this.houses,
@@ -528,6 +619,7 @@ export class Renderer {
       }
     }
     this.upload(this.houses);
+    for (const s of this.smoke) this.upload(s);
 
     this.clouds.count = 0;
     this.drops.count = 0;

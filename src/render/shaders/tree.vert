@@ -1,8 +1,11 @@
 in vec3 a_pos; in float a_mat; in vec4 a_inst; in float a_seed;
-uniform mat4 u_vp; uniform float u_tq;
+uniform mat4 u_vp; uniform float u_tq, u_stretch;
 out vec3 v_world; flat out int v_mat; out float v_seed;
 void main(){
   vec3 p = a_pos;
+  // Arbres : allongés ou trapus selon la graine (u_stretch = 0 pour les autres accessoires).
+  float h = 1.0 + u_stretch * (fract(a_seed * 13.7) - 0.5) * 0.36;
+  p.y *= h; p.xz *= mix(1.0, inversesqrt(h), u_stretch);
   float ang = a_seed * 6.2831, c = cos(ang), s = sin(ang);
   p.xz = mat2(c, -s, s, c) * p.xz;
   if (a_mat > 7.5 && a_mat < 9.5) {          // feuillage seulement : le vent

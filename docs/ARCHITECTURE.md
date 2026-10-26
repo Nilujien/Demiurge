@@ -37,7 +37,7 @@ Un pas (`Simulation.tick`) enchaîne :
 Le **réseau d'écoulement** (`Hydrology.computeFlow`) est plus coûteux et recalculé à la demande :
 
 - direction D8 : chaque cellule pointe vers la voisine de plus forte pente descendante, ou -1 pour une cuvette ;
-- accumulation : les cellules sont parcourues de la plus haute à la plus basse, chacune transmet sa surface drainée (pondérée par le sol, le couvert et l'humidité) à sa voisine aval ;
+- accumulation : chaque cellule transmet sa surface drainée (pondérée par le sol, le couvert et l'humidité) à sa voisine aval une fois qu'elle a reçu celle de toutes ses donneuses. Cet ordre topologique (file, en O(n)) remplace un tri par altitude ;
 - l'intensité de cours d'eau est un `smoothstep` de cette accumulation. Elle sature l'humidité des berges et dépose des alluvions.
 
 Les paramètres sont regroupés en tête de module (`HYDRO`, `ECO`, `RAIN`, `PEOPLE`) et par sol dans `SOILS`.
@@ -66,7 +66,7 @@ Deux textures n×n portent l'état par cellule :
 | `stateTex` | sol      | fertilité   | herbe            | altitude |
 | `hydroTex` | humidité | cours d'eau | direction D8 + 1 | champ    |
 
-Le canal champ vaut 0 hors champ, 1 pour une terre labourée, puis croît avec les céréales jusqu'à 255 (mûres) : `world.frag` y dessine sillons et rangées vertes, jaunissantes puis dorées.
+Le canal champ vaut 0 hors champ, 1 pour une terre labourée, puis croît avec les céréales jusqu'à 255 (mûres). `world.frag` y dessine la terre retournée en sillons et une bordure d'herbe sèche le long des côtés qui ne touchent pas un autre champ. De près (au moins 2,5 pixels par unité), le renderer plante sur les billons 3 rangées de 3 touffes de céréales instanciées (`buildCropMeshes`) : vertes, jaunissantes puis dorées avec épis, grandissant avec la récolte et ondulant sous une vague de vent qui traverse le champ (`u_wave`). De loin, une touffe ferait moins d'un pixel : le sol colore lui-même les rangées.
 
 **Passe finale** : agrandissement au plus proche voisin, contour sombre là où la profondeur saute, ciel en dégradé tramé.
 
@@ -76,7 +76,7 @@ Les shaders sont des fichiers `.glsl` importés en texte (`?raw`). Le renderer p
 
 ## Écarts assumés et dette connue
 
-- La simulation tourne sur le CPU. À 128×128, un pas coûte quelques millisecondes. Au-delà de 256×256, il faudra la passer dans un Web Worker, puis éventuellement porter diffusion et croissance en shaders ping-pong.
+- La simulation tourne sur le CPU. À 256×256, un pas coûte environ 5 ms et le réseau d'écoulement autant ; la préhistoire (480 pas) est étalée sur plusieurs images (`Simulation.advanceGenesis`, 12 ms par image) pour que le monde se forme sous les yeux sans bloquer la page. Au-delà, il faudra passer la simulation dans un Web Worker, puis éventuellement porter diffusion et croissance en shaders ping-pong.
 - `World.heightAt` (CPU) et `hBil` (GPU) doivent rester cohérents ; le second lit une altitude quantifiée sur 8 bits.
 - Les ressources WebGL ne sont pas restaurées après une perte de contexte (`webglcontextlost`).
 - Aucune sauvegarde pour l'instant (voir la feuille de route).

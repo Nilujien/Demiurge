@@ -31,6 +31,19 @@ describe('Simulation', () => {
     expect(sim.world.stream.some((v) => v > 0)).toBe(true);
   });
 
+  it('donne le même monde, que la genèse soit faite d’un coup ou par tranches', () => {
+    const whole = new Simulation(7, 48);
+    const chunked = new Simulation(7, 48, true);
+    expect(chunked.inGenesis).toBe(true);
+    let slices = 0;
+    while (!chunked.advanceGenesis(0)) slices++;
+    expect(slices).toBeGreaterThan(10);
+    expect(chunked.genesisProgress).toBe(1);
+    expect(chunked.world.tree).toEqual(whole.world.tree);
+    expect(chunked.world.height).toEqual(whole.world.height);
+    expect(chunked.people.population).toBe(whole.people.population);
+  });
+
   it('remet les compteurs à zéro et signale tout comme modifié après génération', () => {
     const sim = new Simulation(3, 32);
     sim.tick();

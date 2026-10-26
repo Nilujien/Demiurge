@@ -9,7 +9,14 @@ import type { World } from '../sim/world';
 import { FAR, type CameraFrame } from './camera';
 import { ATTRIB, createPositionVAO, createProgram, createTexture, hexToRgb, type Program } from './gl';
 import { BUBBLE_H, BUBBLE_W, buildBubbleAtlas } from './icons';
-import { buildPropMeshes, buildTreeMeshes, CHIMNEY, TREE_VARIANTS } from './meshes';
+import {
+  buildCropMeshes,
+  buildPropMeshes,
+  buildTreeMeshes,
+  CHIMNEY,
+  CROP_STAGES,
+  TREE_VARIANTS,
+} from './meshes';
 import { SKY, rampUniformData } from './palette';
 import bubbleFrag from './shaders/bubble.frag?raw';
 import bubbleVert from './shaders/bubble.vert?raw';
@@ -51,6 +58,11 @@ const VILLAGER_MIN_PX = 3;
 const VILLAGER_HEIGHT = 0.7;
 const MAX_HOUSES = 1024;
 const HOUSE_SCALE = 1.25;
+/** Touffes de céréales : rangées et touffes par rangée sur un champ, plafond total d'instances. */
+const CROP_ROWS = 3;
+const MAX_CROP_TUFFS = CROP_ROWS * CROP_ROWS * 4096;
+/** En deçà de ce zoom (pixels par unité), une touffe ferait moins d'un pixel : le sol dessine les rangées seul. */
+const CROP_TUFT_MIN_PPU = 2.5;
 /** Bouffées de fumée par cheminée, durée de leur ascension (s) et hauteur atteinte (unités monde). */
 const SMOKE_PUFFS = 8;
 const SMOKE_LIFE = 3.2;
@@ -128,6 +140,9 @@ export class Renderer {
   private readonly trees: InstanceBatch[];
   private readonly treeInstances: SharedInstances;
   private readonly treeOrder: Uint8Array;
+  /** Touffes de céréales par stade de croissance, un seul tampon d'instances. */
+  private readonly crops: InstanceBatch[];
+  private readonly cropInstances: SharedInstances;
   /** Habitants les mains vides, chargés de bois, chargés de grain (indexés par `Carry`). */
   private readonly villagers: InstanceBatch[];
   private readonly houses: InstanceBatch;
@@ -208,6 +223,12 @@ export class Renderer {
       throw new Error('TREE_VARIANTS maillages par espèce d’arbre sont attendus');
     }
     this.treeOrder = new Uint8Array(world.cells);
+    const cropBuffer = gl.createBuffer();
+    if (!cropBuffer) throw new Error('Création du tampon de céréales impossible');
+    gl.bindBuffer(gl.ARRAY_BUFFER, cropBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, MAX_CROP_TUFFS * 20, gl.DYNAMIC_DRAW);
+    this.cropInstances = { buffer: cropBuffer, data: new Float32Array(MAX_CROP_TUFFS * 5) };
+    this.crops = buildCropMeshes().map((mesh) => this.createBatch(mesh, 0, this.cropInstances));
     const props = buildPropMeshes();
     this.villagers = [props.villager, props.villagerWood, props.villagerGrain].map((mesh) =>
       this.createBatch(mesh, PEOPLE.maxVillagers),
@@ -279,6 +300,7 @@ export class Renderer {
     }
     if (d.state) {
       this.uploadState();
+      this.uploadCrops();
       d.state = false;
     }
     if (d.trees) {
@@ -309,6 +331,8 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1i(w.uniform('u_N'), this.n);
     gl.uniform1i(w.uniform('u_overlay'), p.overlay);
+    const tufts = cam.pixelsPerUnit >= CROP_TUFT_MIN_PPU;
+    gl.uniform1i(w.uniform('u_cropTufts'), tufts ? 1 : 0);
     gl.uniform1f(w.uniform('u_W'), this.world.seaLevel);
     gl.uniform1f(w.uniform('u_tq'), p.animTime);
     gl.uniform1f(w.uniform('u_ppu'), cam.pixelsPerUnit);
@@ -343,6 +367,11 @@ export class Renderer {
     gl.uniform1f(t.uniform('u_stretch'), 1);
     for (const batch of this.trees) this.draw(batch);
     gl.uniform1f(t.uniform('u_stretch'), 0);
+    if (tufts) {
+      gl.uniform1f(t.uniform('u_wave'), 1);
+      for (const batch of this.crops) this.draw(batch);
+      gl.uniform1f(t.uniform('u_wave'), 0);
+    }
     for (const batch of [...this.villagers, this.houses]) this.draw(batch);
     // Pluie et nuages : sans écriture de profondeur, pour ne pas tracer de contours dans la trame.
     gl.depthMask(false);
@@ -530,6 +559,52 @@ export class Renderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.n, this.n, gl.RGBA, gl.UNSIGNED_BYTE, h);
   }
 
+  /** Touffes de céréales en rangées sur chaque champ semé, rangées par stade dans le tampon commun. */
+  private uploadCrops(): void {
+    const w = this.world;
+    const n = w.n;
+    const counts = [0, 0, 0];
+    for (let i = 0; i < w.cells; i++) if (w.field[i] && w.crop[i] > 0) counts[cropStage(w.crop[i])]++;
+    const per = CROP_ROWS * CROP_ROWS;
+    let first = 0;
+    for (let k = 0; k < CROP_STAGES; k++) {
+      const b = this.crops[k];
+      b.first = first;
+      b.count = 0;
+      first += Math.min(counts[k] * per, MAX_CROP_TUFFS - first);
+    }
+    const data = this.cropInstances.data;
+    for (let i = 0; i < w.cells; i++) {
+      const c = w.crop[i];
+      if (!w.field[i] || c <= 0) continue;
+      const b = this.crops[cropStage(c)];
+      const next = this.crops[cropStage(c) + 1];
+      const end = next ? next.first : first;
+      const x = i % n;
+      const z = Math.floor(i / n);
+      const scale = 0.3 + 0.7 * Math.min(1, c);
+      for (let r = 0; r < CROP_ROWS; r++) {
+        for (let k = 0; k < CROP_ROWS; k++) {
+          if (b.first + b.count >= end) break;
+          // Rangées alignées sur les sillons de world.frag (z = centre + r/3), touffes un peu décalées.
+          const tx = x + (k - 1) / CROP_ROWS + (hash2(x * 3 + k, z * 3 + r, 71) - 0.5) * 0.12;
+          const tz = z + (r - 1) / CROP_ROWS;
+          const o = (b.first + b.count) * 5;
+          data[o] = tx;
+          data[o + 1] = w.heightAt(tx, tz) - 0.02;
+          data[o + 2] = tz;
+          data[o + 3] = scale * (0.9 + 0.2 * hash2(x * 3 + k, z * 3 + r, 73));
+          data[o + 4] = hash2(x * 3 + k, z * 3 + r, 79);
+          b.count++;
+        }
+      }
+    }
+    if (!first) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.cropInstances.buffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, data.subarray(0, first * 5));
+  }
+
   /** Tri par comptage des arbres par maillage, puis un seul envoi du tampon commun. */
   private uploadTrees(): void {
     const w = this.world;
@@ -695,4 +770,9 @@ export class Renderer {
     this.upload(this.clouds);
     this.upload(this.drops);
   }
+}
+
+/** Stade de croissance des céréales : 0 vert, 1 jaunissant, 2 mûr. */
+function cropStage(crop: number): number {
+  return crop >= 1 ? 2 : crop >= 0.6 ? 1 : 0;
 }

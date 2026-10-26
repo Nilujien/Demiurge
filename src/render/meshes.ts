@@ -200,3 +200,32 @@ export function buildPropMeshes(): PropMeshes {
     drop: new MeshBuilder().prism(0.05, 0, 0.5, 3, Water).build(),
   };
 }
+
+/** Stades de croissance des céréales, chacun avec son maillage : vert, jaunissant, mûr (épis dorés). */
+export const CROP_STAGES = 3;
+
+/**
+ * Touffe de céréales, base en y = 0 : trois tiges fines, et des épis pour le stade mûr.
+ * Peu de facettes : un champ en compte neuf, et l'île des milliers.
+ */
+export function buildCropMeshes(): Float32Array[] {
+  const { Grass, DryGrass, Sand } = Material;
+  const blades: [number, number, number][] = [
+    [0.08, 0.02, 0.55],
+    [-0.07, 0.06, 0.46],
+    [0.01, -0.08, 0.5],
+  ];
+  const tuft = (m: number, ears: boolean): Float32Array => {
+    const b = new MeshBuilder();
+    for (const [x, z, h] of blades) {
+      b.at(x, 0, z).cone(0.07, 0, h, 3, ears ? DryGrass : m);
+      // Épi : un fuseau (deux cônes opposés) au sommet de la tige.
+      if (ears)
+        b.at(x, 0, z)
+          .cone(0.06, h - 0.02, h + 0.12, 3, m)
+          .cone(0.06, h - 0.02, h - 0.1, 3, m);
+    }
+    return b.build();
+  };
+  return [tuft(Grass, false), tuft(DryGrass, false), tuft(Sand, true)];
+}

@@ -13,12 +13,14 @@ import { Hud } from './ui/hud';
 const INITIAL_SEED = 1789;
 const FLOW_MIN_INTERVAL_MS = 250;
 const MAX_TICKS_PER_FRAME = 3;
+/** Temps de préhistoire simulé par image pendant la genèse : le monde se forme sous les yeux. */
+const GENESIS_BUDGET_MS = 12;
 
 function boot(): void {
   const canvas = document.getElementById('view');
   if (!(canvas instanceof HTMLCanvasElement)) throw new Error('#view doit être un <canvas>');
 
-  const sim = new Simulation(INITIAL_SEED);
+  const sim = new Simulation(INITIAL_SEED, undefined, true);
   let renderer: Renderer;
   try {
     renderer = new Renderer(canvas, sim);
@@ -37,7 +39,7 @@ function boot(): void {
   const hud = new Hud({
     rotate: (q) => camera.rotate(q),
     zoom: (s) => camera.zoom(s),
-    regenerate: () => sim.generate((Math.random() * 1e6) | 0),
+    regenerate: () => sim.beginGenesis((Math.random() * 1e6) | 0),
     seaLevel: (level) => sim.setSeaLevel(level),
     pixelSize: (px) => renderer.setPixelSize(px),
   });
@@ -72,7 +74,7 @@ function boot(): void {
       const ray = camera.ray(nx, ny);
       hit = raycastTerrain(sim.world, ray.origin, ray.dir);
     }
-    if (input.mode === 'paint' && hit) {
+    if (input.mode === 'paint' && hit && !sim.inGenesis) {
       if (strokeStarted) {
         flattenTo = hit[1];
         strokeStarted = false;
@@ -88,8 +90,11 @@ function boot(): void {
       });
     }
 
-    // Simulation à pas fixe, découplée du rendu
-    if (!ui.paused) {
+    // Genèse étalée sur plusieurs images, puis simulation à pas fixe, découplée du rendu
+    if (sim.inGenesis) {
+      sim.advanceGenesis(GENESIS_BUDGET_MS);
+      simAccum = 0;
+    } else if (!ui.paused) {
       simAccum += dt;
       let steps = 0;
       while (simAccum >= 1 / SIM_HZ && steps < MAX_TICKS_PER_FRAME) {
@@ -118,7 +123,8 @@ function boot(): void {
     frames++;
     statAccum += dt;
     if (statAccum > 0.5) {
-      hud.showStats(sim.stats(), sim.years, frames / statAccum);
+      const time = sim.inGenesis ? `genèse ${Math.floor(sim.genesisProgress * 100)} %` : `an ${sim.years}`;
+      hud.showStats(sim.stats(), time, frames / statAccum);
       frames = 0;
       statAccum = 0;
     }

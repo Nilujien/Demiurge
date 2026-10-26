@@ -2,7 +2,8 @@ import { clamp, cross, dot, mat4Mul, normalize, type Vec3 } from '../core/math';
 
 /** Élévation de la caméra : 30° donne des losanges 2:1, le standard du pixel art isométrique. */
 export const PITCH = (30 * Math.PI) / 180;
-const DIST = 260;
+/** Recul de la caméra : assez grand pour que toute l'île tienne entre les plans proche et lointain. */
+const DIST = 400;
 export const FAR = DIST * 2 + 40;
 const NEAR = 1;
 

@@ -109,12 +109,13 @@ export class Ecology {
           !building[i] &&
           w.orthogonalFree(x, z)
         ) {
-          const p =
-            (ECO.sproutBase + ECO.sproutPerNeighbour * this.matureNeighbours(x, z)) *
-            fertility[i] *
-            def.trees *
-            smoothstep(0.15, 0.45, moisture[i]);
-          if (this.rng.next() < p) this.plant(i);
+          // Tirage d'abord : le décompte des semenciers (25 cases) n'est fait que si le tirage peut réussir.
+          const roll = this.rng.next();
+          const k = fertility[i] * def.trees * smoothstep(0.15, 0.45, moisture[i]);
+          if (roll < (ECO.sproutBase + ECO.sproutPerNeighbour * 25) * k) {
+            if (roll < (ECO.sproutBase + ECO.sproutPerNeighbour * this.matureNeighbours(x, z)) * k)
+              this.plant(i);
+          }
         }
       }
     }

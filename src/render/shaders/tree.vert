@@ -1,5 +1,5 @@
 in vec3 a_pos; in float a_mat; in vec4 a_inst; in float a_seed;
-uniform mat4 u_vp; uniform float u_tq, u_stretch;
+uniform mat4 u_vp; uniform float u_tq, u_stretch, u_wave;
 out vec3 v_world; flat out int v_mat; out float v_seed;
 void main(){
   vec3 p = a_pos;
@@ -13,6 +13,8 @@ void main(){
     p.x += sin(u_tq * 2.6 + a_seed * 40.0) * 0.07 * k;
     p.z += cos(u_tq * 2.1 + a_seed * 23.0) * 0.05 * k;
   }
+  // Céréales : une vague de vent traverse le champ (phase selon la position), les épis plient plus que le pied.
+  p.x += u_wave * sin(u_tq * 2.4 - a_inst.x * 0.45 - a_inst.z * 0.3) * 0.16 * p.y;
   vec3 w = a_inst.xyz + p * a_inst.w;
   v_world = w; v_mat = int(a_mat + 0.5); v_seed = a_seed;
   gl_Position = u_vp * vec4(w, 1.0);

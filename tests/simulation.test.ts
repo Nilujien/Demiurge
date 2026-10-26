@@ -16,7 +16,7 @@ describe('Simulation', () => {
   });
 
   it('les villages cultivent des champs au fil des années', () => {
-    const sim = new Simulation(1789);
+    const sim = new Simulation(1789, 128);
     for (let t = 0; t < 400; t++) sim.tick();
     const s = sim.stats();
     expect(s.population).toBeGreaterThan(0);
@@ -24,7 +24,7 @@ describe('Simulation', () => {
   });
 
   it('produit des forêts et des cours d’eau pendant la préhistoire', () => {
-    const sim = new Simulation(1789);
+    const sim = new Simulation(1789, 128);
     const s = sim.stats();
     expect(s.trees).toBeGreaterThan(100);
     expect(s.cover).toBeGreaterThan(0.1);

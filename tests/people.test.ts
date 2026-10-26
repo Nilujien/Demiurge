@@ -15,7 +15,7 @@ function plain(n = 40): World {
 
 describe('People', () => {
   it('fonde les villages initiaux sur des terres habitables', () => {
-    const sim = new Simulation(1789);
+    const sim = new Simulation(1789, 128);
     const { people, world } = sim;
     expect(people.tribes.length).toBeGreaterThan(0);
     expect(people.population).toBeGreaterThan(0);

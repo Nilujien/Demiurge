@@ -6,9 +6,16 @@ const TAU = Math.PI * 2;
 /** Assembleur de maillages low-poly non indexés : (x, y, z, matériau) par sommet. */
 class MeshBuilder {
   private readonly v: number[] = [];
+  private o: P3 = [0, 0, 0];
 
   private tri(a: P3, b: P3, c: P3, m: number): void {
-    this.v.push(...a, m, ...b, m, ...c, m);
+    for (const p of [a, b, c]) this.v.push(p[0] + this.o[0], p[1] + this.o[1], p[2] + this.o[2], m);
+  }
+
+  /** Décale les primitives suivantes. */
+  at(x: number, y: number, z: number): this {
+    this.o = [x, y, z];
+    return this;
   }
 
   prism(r: number, y0: number, y1: number, seg: number, m: number): this {
@@ -87,4 +94,36 @@ export function buildTreeMeshes(): Float32Array[] {
       .ellipsoid([0.25, 0.35, 0.15], [0.28, 0.25, 0.28], 5, 3, Broadleaf)
       .build(),
   ];
+}
+
+/** Accessoires instanciés comme les arbres : base en y = 0, face vers +x. */
+export interface PropMeshes {
+  villager: Float32Array;
+  villagerWood: Float32Array;
+  villagerGrain: Float32Array;
+  house: Float32Array;
+  cloud: Float32Array;
+  drop: Float32Array;
+}
+
+export function buildPropMeshes(): PropMeshes {
+  const { Sand, Clay, Trunk, DryGrass, Snow, Water } = Material;
+  const villager = (): MeshBuilder =>
+    new MeshBuilder()
+      .prism(0.07, 0, 0.22, 4, Trunk)
+      .prism(0.12, 0.2, 0.5, 5, Water)
+      .ellipsoid([0, 0.6, 0], [0.1, 0.1, 0.1], 5, 3, Sand);
+  // Maison : murs d'argile carrés (prisme à 4 pans tourné de 45°) et toit de chaume.
+  return {
+    villager: villager().build(),
+    villagerWood: villager().at(-0.15, 0, 0).prism(0.07, 0.25, 0.7, 4, Trunk).build(),
+    villagerGrain: villager().ellipsoid([-0.15, 0.4, 0], [0.11, 0.14, 0.11], 5, 3, DryGrass).build(),
+    house: new MeshBuilder().prism(0.5, 0, 0.5, 4, Clay).cone(0.68, 0.45, 1.05, 4, DryGrass).build(),
+    cloud: new MeshBuilder()
+      .ellipsoid([0, 0, 0], [1, 0.38, 1], 7, 4, Snow)
+      .ellipsoid([0.45, 0.22, 0.2], [0.55, 0.32, 0.55], 6, 3, Snow)
+      .ellipsoid([-0.4, 0.15, -0.35], [0.5, 0.3, 0.5], 6, 3, Snow)
+      .build(),
+    drop: new MeshBuilder().prism(0.05, 0, 0.5, 3, Water).build(),
+  };
 }

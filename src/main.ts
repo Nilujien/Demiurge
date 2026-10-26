@@ -21,7 +21,7 @@ function boot(): void {
   const sim = new Simulation(INITIAL_SEED);
   let renderer: Renderer;
   try {
-    renderer = new Renderer(canvas, sim.world);
+    renderer = new Renderer(canvas, sim);
   } catch (err) {
     console.error(err);
     const msg = document.getElementById('nogl');
@@ -108,6 +108,8 @@ function boot(): void {
     const color = ui.tool === 'soil' ? soilDef(ui.soil).swatch : toolDef(ui.tool).color;
     renderer.render(cam, {
       animTime: Math.floor((now / 1000) * ANIM_FPS) / ANIM_FPS,
+      time: now / 1000,
+      simAlpha: Math.min(1, simAccum * SIM_HZ),
       brush: hit ? { x: hit[0], z: hit[2], radius: ui.brush, color } : null,
       overlay: ui.overlay,
     });

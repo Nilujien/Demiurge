@@ -14,6 +14,10 @@ export const ECO = {
   sproutBase: 0.00004,
   sproutPerNeighbour: 0.0035,
   saplingSize: 0.04,
+  /** Croissance des céréales par pas, modulée par fertilité et humidité. */
+  cropGrowth: 0.022,
+  /** Fertilité prélevée par les céréales à chaque pas. */
+  cropUptake: 0.0008,
 } as const;
 
 /** Fertilité, herbe et forêts. Les tirages passent par le Rng de la simulation. */
@@ -59,7 +63,7 @@ export class Ecology {
 
   stepVegetation(): void {
     const w = this.world;
-    const { n, height, soil, fertility, grass, tree, moisture, stream } = w;
+    const { n, height, soil, fertility, grass, tree, moisture, stream, field, crop, building } = w;
 
     for (let z = 0; z < n; z++) {
       for (let x = 0; x < n; x++) {
@@ -68,10 +72,22 @@ export class Ecology {
         if (h < w.seaLevel + 0.05) {
           grass[i] = 0;
           tree[i] = 0;
+          field[i] = 0;
+          crop[i] = 0;
           continue;
         }
         const def = soilDef(soil[i]);
         const wet = smoothstep(0.08, 0.4, moisture[i]);
+        if (field[i]) {
+          // Champ : la terre retournée ne porte que les céréales semées.
+          grass[i] = 0;
+          tree[i] = 0;
+          if (crop[i] > 0 && crop[i] < 1) {
+            crop[i] = Math.min(1, crop[i] + ECO.cropGrowth * (0.3 + fertility[i]) * (0.4 + def.grass) * wet);
+            fertility[i] = Math.max(0, fertility[i] - ECO.cropUptake);
+          }
+          continue;
+        }
         let target = Math.min(1, fertility[i] * def.grass * 1.8 * wet);
         if (h > SNOW_LINE) target *= 0.15;
         grass[i] += (target - grass[i]) * ECO.grassRate;
@@ -86,7 +102,13 @@ export class Ecology {
           const water = 0.3 + 0.7 * smoothstep(0.12, 0.45, moisture[i]);
           tree[i] = Math.min(1, tree[i] + ECO.treeGrowth * (0.35 + fertility[i]) * def.trees * water);
           if (tree[i] > 0.6) fertility[i] = Math.min(1, fertility[i] + ECO.forestHumus);
-        } else if (grass[i] > 0.45 && h < SNOW_LINE && def.trees > 0 && w.orthogonalFree(x, z)) {
+        } else if (
+          grass[i] > 0.45 &&
+          h < SNOW_LINE &&
+          def.trees > 0 &&
+          !building[i] &&
+          w.orthogonalFree(x, z)
+        ) {
           const p =
             (ECO.sproutBase + ECO.sproutPerNeighbour * this.matureNeighbours(x, z)) *
             fertility[i] *

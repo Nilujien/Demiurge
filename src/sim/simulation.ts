@@ -3,7 +3,13 @@ import { Rng } from '../core/rng';
 import { Ecology } from './ecology';
 import { generateTerrain, pioneerCells } from './generate';
 import { Hydrology } from './hydrology';
+import { People } from './people';
+import { Weather } from './weather';
 import { World } from './world';
+
+/** Villages fondés à la génération d'un monde, et habitants de chacun. */
+const INITIAL_TRIBES = 2;
+const INITIAL_VILLAGERS = 5;
 
 /** Ce qui a changé depuis le dernier rendu ; le moteur de rendu remet les drapeaux à false. */
 export interface Dirty {
@@ -17,6 +23,8 @@ export interface Dirty {
 
 export interface WorldStats {
   trees: number;
+  population: number;
+  fields: number;
   /** Part des terres émergées couvertes d'herbe dense ou d'arbres [0, 1]. */
   cover: number;
 }
@@ -32,12 +40,16 @@ export class Simulation {
   private rng: Rng;
   private hydrology: Hydrology;
   private ecology: Ecology;
+  readonly weather: Weather;
+  readonly people: People;
 
   constructor(seed: number, size?: number) {
     this.world = new World(size);
     this.rng = new Rng(seed);
     this.hydrology = new Hydrology(this.world);
     this.ecology = new Ecology(this.world, this.rng);
+    this.weather = new Weather(this.world);
+    this.people = new People(this.world, seed);
     this.generate(seed);
   }
 
@@ -48,6 +60,8 @@ export class Simulation {
   generate(seed: number, prehistory = PREHISTORY_TICKS): void {
     this.rng = new Rng(seed);
     this.ecology = new Ecology(this.world, this.rng);
+    this.weather.reset();
+    this.people.reset(seed);
     generateTerrain(this.world, seed);
     for (const i of pioneerCells(this.world, seed)) {
       const x = i % this.world.n;
@@ -60,6 +74,8 @@ export class Simulation {
       if (t % 40 === 0) this.hydrology.computeFlow();
     }
     this.hydrology.computeFlow();
+    // Les premiers villages s'installent sur une île déjà couverte de végétation.
+    this.people.foundInitial(INITIAL_TRIBES, INITIAL_VILLAGERS);
     this.ticks = 0;
     this.flowDirty = false;
     this.markAll();
@@ -67,8 +83,15 @@ export class Simulation {
 
   tick(): void {
     this.ecology.diffuseFertility();
+    this.weather.step();
     this.hydrology.step();
     this.ecology.stepVegetation();
+    this.people.step();
+    if (this.people.heightsChanged) {
+      this.people.heightsChanged = false;
+      this.dirty.heights = true;
+      this.flowDirty = true;
+    }
     this.ticks++;
     if (this.ticks % 16 === 0) this.flowDirty = true;
     this.dirty.state = true;
@@ -93,19 +116,31 @@ export class Simulation {
     this.ecology.plant(i);
   }
 
+  /** Le démiurge verse de l'eau : elle forme un nuage qui tombe en pluie au fil des pas suivants. */
+  rain(x: number, z: number, radius: number, dt: number): void {
+    this.weather.addRain(x, z, radius, dt);
+  }
+
+  /** Fait apparaître un habitant en (x, z) ; retourne false si le lieu est inhabitable. */
+  settle(x: number, z: number): boolean {
+    return this.people.settle(x, z) !== null;
+  }
+
   stats(): WorldStats {
-    const { cells, height, grass, tree, seaLevel } = this.world;
+    const { cells, height, grass, tree, field, seaLevel } = this.world;
     let trees = 0;
+    let fields = 0;
     let land = 0;
     let covered = 0;
     for (let i = 0; i < cells; i++) {
       if (tree[i] > 0.3) trees++;
+      if (field[i]) fields++;
       if (height[i] > seaLevel) {
         land++;
         if (grass[i] > 0.5 || tree[i] > 0.3) covered++;
       }
     }
-    return { trees, cover: land ? covered / land : 0 };
+    return { trees, population: this.people.population, fields, cover: land ? covered / land : 0 };
   }
 
   private markAll(): void {

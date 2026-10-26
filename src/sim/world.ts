@@ -29,6 +29,12 @@ export class World {
   readonly flowAcc: Float32Array;
   /** Intensité de cours d'eau [0, 1] dérivée de flowAcc. */
   readonly stream: Float32Array;
+  /** Champ labouré par les habitants (1) ou non (0). */
+  readonly field: Uint8Array;
+  /** Croissance des céréales [0, 1] sur un champ ; 0 = pas semé, 1 = mûr. */
+  readonly crop: Float32Array;
+  /** Cellule occupée par une maison (1) ou non (0). */
+  readonly building: Uint8Array;
 
   seaLevel = 0;
 
@@ -45,6 +51,9 @@ export class World {
     this.flowDir = new Int8Array(this.cells);
     this.flowAcc = new Float32Array(this.cells);
     this.stream = new Float32Array(this.cells);
+    this.field = new Uint8Array(this.cells);
+    this.crop = new Float32Array(this.cells);
+    this.building = new Uint8Array(this.cells);
   }
 
   index(x: number, z: number): number {
@@ -70,6 +79,19 @@ export class World {
     const i = zi * n + xi;
     const h = this.height;
     return (h[i] * (1 - fx) + h[i + 1] * fx) * (1 - fz) + (h[i + n] * (1 - fx) + h[i + n + 1] * fx) * fz;
+  }
+
+  /** Plus grand écart d'altitude avec les 4 voisins orthogonaux. */
+  orthogonalRelief(x: number, z: number): number {
+    const n = this.n;
+    const h = this.height;
+    const i = z * n + x;
+    let d = 0;
+    if (x > 0) d = Math.max(d, Math.abs(h[i] - h[i - 1]));
+    if (x < n - 1) d = Math.max(d, Math.abs(h[i] - h[i + 1]));
+    if (z > 0) d = Math.max(d, Math.abs(h[i] - h[i - n]));
+    if (z < n - 1) d = Math.max(d, Math.abs(h[i] - h[i + n]));
+    return d;
   }
 
   /** Aucun arbre sur les 4 voisins orthogonaux : espacement naturel des troncs. */

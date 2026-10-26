@@ -5,6 +5,8 @@
 - **0.1** : relief procédural, caméra iso pixel art, sculpture, sols, fertilité, forêts émergentes.
 - **0.2** : humidité et ruissellement, cours d'eau et mares, outils Arroser et Abattre, calques humidité et fertilité. Migration vers TypeScript + Vite, simulation déterministe et testée.
 
+- **0.3** (en cours) : villages et habitants (abattage, terrassement, labours, céréales, maisons, essaimage) ; outil Peupler ; l'outil Arroser devient Pluie, l'eau du démiurge tombant de nuages qui dérivent.
+
 ## Prochaines étapes
 
 1. **Mobile** : profiler sur un téléphone d'entrée de gamme, réglage automatique de la taille de pixel, interface tactile repensée (barre d'outils au pouce).

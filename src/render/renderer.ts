@@ -1,12 +1,14 @@
 import { BASE, H_MAX, H_MIN, SNOW_LINE } from '../config';
 import { clamp } from '../core/math';
 import { hash2 } from '../core/noise';
+import { Carry, PEOPLE } from '../sim/people';
 import type { Simulation } from '../sim/simulation';
 import { TREE_KINDS } from '../sim/soils';
+import { RAIN } from '../sim/weather';
 import type { World } from '../sim/world';
 import { FAR, type CameraFrame } from './camera';
 import { ATTRIB, createPositionVAO, createProgram, createTexture, hexToRgb, type Program } from './gl';
-import { buildTreeMeshes } from './meshes';
+import { buildPropMeshes, buildTreeMeshes } from './meshes';
 import { SKY, rampUniformData } from './palette';
 import commonGlsl from './shaders/common.glsl?raw';
 import postFrag from './shaders/post.frag?raw';
@@ -29,11 +31,24 @@ export type OverlayId = (typeof Overlay)[keyof typeof Overlay];
 export interface FrameParams {
   /** Temps d'animation quantifié (secondes). */
   animTime: number;
+  /** Temps continu (secondes) : chute des gouttes de pluie. */
+  time: number;
+  /** Fraction écoulée du pas de simulation en cours [0, 1] : interpolation des déplacements. */
+  simAlpha: number;
   brush: { x: number; z: number; radius: number; color: string } | null;
   overlay: OverlayId;
 }
 
-interface TreeBatch {
+/** Gouttes de pluie dessinées au plus, tous nuages confondus. */
+const MAX_DROPS = 3000;
+/** Hauteur minimale d'un habitant à l'écran (pixels basse résolution). */
+const VILLAGER_MIN_PX = 3;
+const VILLAGER_HEIGHT = 0.7;
+const MAX_HOUSES = 1024;
+const HOUSE_SCALE = 1.25;
+
+/** Un maillage dessiné en instanciation ; par instance : position (x, y, z), échelle, graine. */
+interface InstanceBatch {
   vao: WebGLVertexArrayObject;
   instanceBuffer: WebGLBuffer;
   vertexCount: number;
@@ -55,6 +70,7 @@ export class Renderer {
   dpr = 1;
   private pixelSize = 3;
 
+  private readonly sim: Simulation;
   private readonly world: World;
   private readonly n: number;
   private readonly progWorld: Program;
@@ -77,7 +93,12 @@ export class Renderer {
   private readonly hydroTex: WebGLTexture;
   private readonly stateBytes: Uint8Array;
   private readonly hydroBytes: Uint8Array;
-  private readonly trees: TreeBatch[];
+  private readonly trees: InstanceBatch[];
+  /** Habitants les mains vides, chargés de bois, chargés de grain (indexés par `Carry`). */
+  private readonly villagers: InstanceBatch[];
+  private readonly houses: InstanceBatch;
+  private readonly clouds: InstanceBatch;
+  private readonly drops: InstanceBatch;
 
   private fbo: WebGLFramebuffer | null = null;
   private colorTex: WebGLTexture | null = null;
@@ -86,8 +107,9 @@ export class Renderer {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    world: World,
+    sim: Simulation,
   ) {
+    const world = sim.world;
     const gl = canvas.getContext('webgl2', {
       antialias: false,
       alpha: false,
@@ -96,6 +118,7 @@ export class Renderer {
     });
     if (!gl) throw new Error('WebGL2 indisponible');
     this.gl = gl;
+    this.sim = sim;
     this.world = world;
     this.n = world.n;
     const n = this.n;
@@ -138,8 +161,15 @@ export class Renderer {
     this.stateBytes = new Uint8Array(world.cells * 4);
     this.hydroBytes = new Uint8Array(world.cells * 4);
 
-    this.trees = buildTreeMeshes().map((mesh) => this.createTreeBatch(mesh));
+    this.trees = buildTreeMeshes().map((mesh) => this.createBatch(mesh, world.cells));
     if (this.trees.length !== TREE_KINDS) throw new Error('Un maillage par espèce d’arbre est attendu');
+    const props = buildPropMeshes();
+    this.villagers = [props.villager, props.villagerWood, props.villagerGrain].map((mesh) =>
+      this.createBatch(mesh, PEOPLE.maxVillagers),
+    );
+    this.houses = this.createBatch(props.house, MAX_HOUSES);
+    this.clouds = this.createBatch(props.cloud, RAIN.maxClouds);
+    this.drops = this.createBatch(props.drop, MAX_DROPS);
 
     const empty = gl.createVertexArray();
     if (!empty) throw new Error('Création de VAO impossible');
@@ -257,11 +287,15 @@ export class Renderer {
     gl.useProgram(t.handle);
     gl.uniformMatrix4fv(t.uniform('u_vp'), false, cam.viewProj);
     gl.uniform1f(t.uniform('u_tq'), p.animTime);
-    for (const batch of this.trees) {
-      if (!batch.count) continue;
-      gl.bindVertexArray(batch.vao);
-      gl.drawArraysInstanced(gl.TRIANGLES, 0, batch.vertexCount, batch.count);
-    }
+    gl.uniform1f(t.uniform('u_dither'), 0);
+    this.uploadActors(cam.pixelsPerUnit, p);
+    for (const batch of [...this.trees, ...this.villagers, this.houses]) this.draw(batch);
+    // Pluie et nuages : sans écriture de profondeur, pour ne pas tracer de contours dans la trame.
+    gl.depthMask(false);
+    this.draw(this.drops);
+    gl.uniform1f(t.uniform('u_dither'), 0.45);
+    this.draw(this.clouds);
+    gl.depthMask(true);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -285,7 +319,13 @@ export class Renderer {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  private createTreeBatch(mesh: Float32Array): TreeBatch {
+  private draw(batch: InstanceBatch): void {
+    if (!batch.count) return;
+    this.gl.bindVertexArray(batch.vao);
+    this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, batch.vertexCount, batch.count);
+  }
+
+  private createBatch(mesh: Float32Array, capacity: number): InstanceBatch {
     const gl = this.gl;
     const vao = gl.createVertexArray();
     const meshBuffer = gl.createBuffer();
@@ -299,7 +339,7 @@ export class Renderer {
     gl.enableVertexAttribArray(ATTRIB.mat);
     gl.vertexAttribPointer(ATTRIB.mat, 1, gl.FLOAT, false, 16, 12);
     gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, this.world.cells * 20, gl.DYNAMIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, capacity * 20, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(ATTRIB.inst);
     gl.vertexAttribPointer(ATTRIB.inst, 4, gl.FLOAT, false, 20, 0);
     gl.vertexAttribDivisor(ATTRIB.inst, 1);
@@ -311,7 +351,7 @@ export class Renderer {
       vao,
       instanceBuffer,
       vertexCount: mesh.length / 4,
-      data: new Float32Array(this.world.cells * 5),
+      data: new Float32Array(capacity * 5),
       count: 0,
     };
   }
@@ -399,7 +439,8 @@ export class Renderer {
       h[k] = w.moisture[i] * 255;
       h[k + 1] = w.stream[i] * 255;
       h[k + 2] = w.flowDir[i] + 1;
-      h[k + 3] = 0;
+      // Champ : 0 = aucun, 1 = labouré sans céréales, puis croissance des céréales jusqu'à 255 (mûres).
+      h[k + 3] = w.field[i] ? 1 + Math.min(1, w.crop[i]) * 254 : 0;
     }
     gl.bindTexture(gl.TEXTURE_2D, this.stateTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.n, this.n, gl.RGBA, gl.UNSIGNED_BYTE, s);
@@ -408,7 +449,6 @@ export class Renderer {
   }
 
   private uploadTrees(): void {
-    const gl = this.gl;
     const w = this.world;
     const n = w.n;
     for (const t of this.trees) t.count = 0;
@@ -421,18 +461,95 @@ export class Renderer {
       const z = Math.floor(i / n);
       const jx = x + (hash2(x, z, 3) - 0.5) * 0.5;
       const jz = z + (hash2(x, z, 5) - 0.5) * 0.5;
-      const k = batch.count * 5;
-      batch.data[k] = jx;
-      batch.data[k + 1] = w.heightAt(jx, jz) - 0.08;
-      batch.data[k + 2] = jz;
-      batch.data[k + 3] = (0.3 + 0.7 * g) * (1.05 + 0.35 * hash2(x, z, 9));
-      batch.data[k + 4] = hash2(x, z, 11);
-      batch.count++;
+      this.push(
+        batch,
+        jx,
+        w.heightAt(jx, jz) - 0.08,
+        jz,
+        (0.3 + 0.7 * g) * (1.05 + 0.35 * hash2(x, z, 9)),
+        hash2(x, z, 11),
+      );
     }
-    for (const t of this.trees) {
-      if (!t.count) continue;
-      gl.bindBuffer(gl.ARRAY_BUFFER, t.instanceBuffer);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, t.data.subarray(0, t.count * 5));
+    for (const t of this.trees) this.upload(t);
+  }
+
+  private upload(batch: InstanceBatch): void {
+    if (!batch.count) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, batch.instanceBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, batch.data.subarray(0, batch.count * 5));
+  }
+
+  private push(batch: InstanceBatch, x: number, y: number, z: number, scale: number, seed: number): void {
+    if ((batch.count + 1) * 5 > batch.data.length) return;
+    const k = batch.count * 5;
+    batch.data[k] = x;
+    batch.data[k + 1] = y;
+    batch.data[k + 2] = z;
+    batch.data[k + 3] = scale;
+    batch.data[k + 4] = seed;
+    batch.count++;
+  }
+
+  /** Habitants, maisons, nuages et gouttes : reconstruits à chaque image (positions interpolées). */
+  private uploadActors(ppu: number, p: FrameParams): void {
+    const w = this.world;
+    const { people, weather } = this.sim;
+    const a = p.simAlpha;
+
+    for (const b of this.villagers) b.count = 0;
+    const vs = Math.max(1, VILLAGER_MIN_PX / (VILLAGER_HEIGHT * ppu));
+    for (const v of people.villagers) {
+      const x = v.px + (v.x - v.px) * a;
+      const z = v.pz + (v.z - v.pz) * a;
+      const moving = v.x !== v.px || v.z !== v.pz;
+      // Petit rebond à la marche et au travail (coups de hache, de houe).
+      const bob = moving || v.working ? Math.abs(Math.sin(p.time * 11 + v.id)) * 0.06 * vs : 0;
+      const seed = (((-v.heading / (Math.PI * 2)) % 1) + 1) % 1;
+      const batch = this.villagers[v.carry] ?? this.villagers[Carry.None];
+      this.push(batch, x, w.heightAt(x, z) + bob, z, vs, seed);
     }
+    for (const b of this.villagers) this.upload(b);
+
+    this.houses.count = 0;
+    for (const tribe of people.tribes) {
+      for (const h of tribe.houses) {
+        const x = h.cell % w.n;
+        const z = Math.floor(h.cell / w.n);
+        // Les chantiers sortent de terre au fil de la construction.
+        this.push(
+          this.houses,
+          x,
+          w.height[h.cell] - 0.05,
+          z,
+          HOUSE_SCALE * (0.25 + 0.75 * h.progress),
+          0.125,
+        );
+      }
+    }
+    this.upload(this.houses);
+
+    this.clouds.count = 0;
+    this.drops.count = 0;
+    const ds = Math.max(1, 1 / (0.1 * ppu));
+    for (const c of weather.clouds) {
+      this.push(this.clouds, c.x, c.alt, c.z, c.radius * 0.75, hash2(c.id, 0, 41));
+      const area = Math.PI * c.radius * c.radius;
+      const strength = Math.min(1, c.water / (area * RAIN.rate * 2));
+      const count = Math.min(240, Math.ceil(area * 1.2 * strength));
+      for (let j = 0; j < count; j++) {
+        const rr = c.radius * Math.sqrt(hash2(c.id, j, 43));
+        const ang = hash2(c.id, j, 47) * Math.PI * 2;
+        const x = c.x + Math.cos(ang) * rr;
+        const z = c.z + Math.sin(ang) * rr;
+        const ground = Math.max(w.heightAt(x, z), w.seaLevel);
+        if (!Number.isFinite(ground) || ground >= c.alt) continue;
+        const fall = c.alt - ground;
+        const phase = (p.time * (9 / fall) + hash2(c.id, j, 53)) % 1;
+        this.push(this.drops, x, c.alt - phase * fall, z, ds, hash2(c.id, j, 59));
+      }
+    }
+    this.upload(this.clouds);
+    this.upload(this.drops);
   }
 }

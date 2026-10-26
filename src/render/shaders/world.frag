@@ -18,7 +18,7 @@ float stream(vec2 p, out float along, out float inten){
     if (c.x < 0 || c.y < 0 || c.x >= u_N || c.y >= u_N) continue;
     vec4 h = texelFetch(u_hydro, c, 0);
     if (h.g < 0.01) continue;
-    int d = int(h.b * 255.0 + 0.5) - 1;
+    int d = (int(h.b * 255.0 + 0.5) & 15) - 1;
     vec2 a = vec2(c);
     float w, dist, t = 0.0;
     if (d < 0) { w = 0.35 + 0.45 * h.g; dist = length(p - a); }          // cuvette : mare
@@ -55,6 +55,7 @@ void main(){
   int soil = int(s.r * 255.0 + 0.5); float fert = s.g, grass = s.b;
   vec4 hy = texelFetch(u_hydro, c, 0);
   float moist = hy.r;
+  float wear = float(int(hy.b * 255.0 + 0.5) >> 4) / 15.0;
   vec3 col;
   if (u_mode == 0) {                       // dessus du terrain
     int m = soil;
@@ -72,6 +73,10 @@ void main(){
     if (m == 0 && p.y < u_W + 0.5) bd = max(bd - 1, 0);   // sable mouillé
     if (m <= 2 && moist > 0.55) bd = max(bd - 1, 0);       // sol détrempé
     col = ramp(m, bd);
+    if (!cliff && m != 6 && b < wear * 2.0 - 0.7) {    // sentier de terre battue, bords tramés
+      col = ramp(0, wear > 0.6 ? 1 : 2);
+      if (hash12(floor(p.xz * 4.0)) > 0.93) col = ramp(3, 2);   // cailloux
+    }
     bool field = hy.a > 0.002 && !cliff;
     if (field) {                           // champ : sillons, bordure, rangées de céréales
       float crop = (hy.a * 255.0 - 1.0) / 254.0;

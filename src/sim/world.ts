@@ -35,6 +35,8 @@ export class World {
   readonly crop: Float32Array;
   /** Cellule occupée par une maison (1) ou non (0). */
   readonly building: Uint8Array;
+  /** Usure du sol par le passage des habitants [0, 1] : au-delà d'un seuil, un sentier se dessine. */
+  readonly wear: Float32Array;
 
   seaLevel = 0;
 
@@ -54,6 +56,7 @@ export class World {
     this.field = new Uint8Array(this.cells);
     this.crop = new Float32Array(this.cells);
     this.building = new Uint8Array(this.cells);
+    this.wear = new Float32Array(this.cells);
   }
 
   index(x: number, z: number): number {

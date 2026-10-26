@@ -18,6 +18,8 @@ export const ECO = {
   cropGrowth: 0.022,
   /** Fertilité prélevée par les céréales à chaque pas. */
   cropUptake: 0.0008,
+  /** Effacement des sentiers par pas quand plus personne n'y passe. */
+  wearDecay: 0.997,
 } as const;
 
 /** Fertilité, herbe et forêts. Les tirages passent par le Rng de la simulation. */
@@ -63,7 +65,7 @@ export class Ecology {
 
   stepVegetation(): void {
     const w = this.world;
-    const { n, height, soil, fertility, grass, tree, moisture, stream, field, crop, building } = w;
+    const { n, height, soil, fertility, grass, tree, moisture, stream, field, crop, building, wear } = w;
 
     for (let z = 0; z < n; z++) {
       for (let x = 0; x < n; x++) {
@@ -88,7 +90,9 @@ export class Ecology {
           }
           continue;
         }
-        let target = Math.min(1, fertility[i] * def.grass * 1.8 * wet);
+        // L'herbe piétinée ne repousse pas sur les sentiers.
+        if (wear[i] > 0) wear[i] = wear[i] < 0.002 ? 0 : wear[i] * ECO.wearDecay;
+        let target = Math.min(1, fertility[i] * def.grass * 1.8 * wet) * (1 - 0.85 * wear[i]);
         if (h > SNOW_LINE) target *= 0.15;
         grass[i] += (target - grass[i]) * ECO.grassRate;
         fertility[i] *= ECO.fertilityDecay;

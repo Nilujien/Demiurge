@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Activity, activityOf, Carry, People, PEOPLE, Task } from '../src/sim/people';
+import { Ecology } from '../src/sim/ecology';
+import { Rng } from '../src/core/rng';
 import { Simulation } from '../src/sim/simulation';
 import { Soil } from '../src/sim/soils';
 import { World } from '../src/sim/world';
@@ -130,5 +132,95 @@ describe('People', () => {
     }
     expect(seen.has(Activity.Terrace)).toBe(true);
     expect(seen.has(Activity.Sow)).toBe(true);
+  });
+
+  it('ressème aussitôt après la moisson, sans trajet supplémentaire', () => {
+    const w = plain();
+    const people = new People(w, 7);
+    const v = people.settle(20, 20)!;
+    v.tribe.grain = 50;
+    v.tribe.wood = 50;
+    const f = w.index(21, 20);
+    w.field[f] = 1;
+    w.crop[f] = 1;
+    v.tribe.fields.push(f);
+    // Au moment où le champ est ressemé, le moissonneur porte encore sa récolte : pas d'aller-retour.
+    for (let t = 0; t < 60 && !(w.crop[f] > 0 && w.crop[f] < 1); t++) people.step();
+    expect(w.crop[f]).toBeCloseTo(0.02);
+    expect(v.carry).toBe(Carry.Grain);
+  });
+
+  it('cueille quand le grenier est vide', () => {
+    const w = plain();
+    w.grass.fill(0.9);
+    const people = new People(w, 8);
+    const tribe = people.settle(20, 20)!.tribe;
+    people.settle(20, 20);
+    tribe.grain = 0;
+    let foraged = false;
+    for (let t = 0; t < 200 && !foraged; t++) {
+      people.step();
+      foraged = people.villagers.some((v) => activityOf(v) === Activity.Forage) || tribe.grain > 0;
+    }
+    expect(foraged).toBe(true);
+  });
+
+  it('un village prospère envoie du grain à un voisin affamé, par voie de terre seulement', () => {
+    /** Plus grosse livraison reçue d'un coup par le village pauvre (la cueillette ne rapporte que 1). */
+    const run = (water: boolean): number => {
+      const w = plain(80);
+      w.grass.fill(0.9); // de quoi cueillir en attendant les secours
+      if (water) for (let z = 0; z < w.n; z++) for (let x = 20; x < 24; x++) w.height[w.index(x, z)] = -3;
+      const people = new People(w, 9);
+      const rich = people.settle(10, 40)!.tribe;
+      for (let k = 0; k < 3; k++) people.settle(10, 40);
+      const poor = people.settle(35, 40)!.tribe;
+      for (let k = 0; k < 2; k++) people.settle(35, 40);
+      for (const v of people.villagers) v.lifespan = 1e9;
+      rich.grain = 500;
+      poor.grain = 0;
+      let biggest = 0;
+      for (let t = 0; t < 8 * 40; t++) {
+        const before = poor.grain;
+        people.step();
+        biggest = Math.max(biggest, poor.grain - before);
+      }
+      return biggest;
+    };
+    expect(run(false)).toBeGreaterThanOrEqual(PEOPLE.aidLoad - 1);
+    expect(run(true)).toBeLessThan(PEOPLE.aidLoad - 1);
+  });
+
+  it('les trajets usent le sol et y tracent des sentiers', () => {
+    const w = plain();
+    const people = new People(w, 10);
+    const v = people.settle(10, 20)!;
+    v.tribe.grain = 50;
+    v.tribe.wood = 0;
+    w.tree[w.index(18, 20)] = 1;
+    for (let t = 0; t < 200; t++) people.step();
+    expect(w.wear[w.index(14, 20)]).toBeGreaterThan(0);
+  });
+
+  it('compte les décès par cause', () => {
+    const w = plain();
+    const people = new People(w, 11);
+    const v = people.settle(20, 20)!;
+    v.age = v.lifespan;
+    people.step();
+    expect(people.deaths.age).toBe(1);
+  });
+});
+
+describe('Sentiers', () => {
+  it("s'effacent et laissent repousser l'herbe quand plus personne n'y passe", () => {
+    const w = plain(8);
+    w.wear.fill(1);
+    const eco = new Ecology(w, new Rng(1));
+    for (let t = 0; t < 50; t++) eco.stepVegetation();
+    const trodden = w.grass[w.index(4, 4)];
+    for (let t = 0; t < 2000; t++) eco.stepVegetation();
+    expect(w.wear[w.index(4, 4)]).toBeLessThan(0.05);
+    expect(w.grass[w.index(4, 4)]).toBeGreaterThan(trodden);
   });
 });

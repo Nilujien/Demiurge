@@ -549,7 +549,8 @@ export class Renderer {
       s[k + 3] = clamp((w.height[i] - H_MIN) / (H_MAX - H_MIN), 0, 1) * 255;
       h[k] = w.moisture[i] * 255;
       h[k + 1] = w.stream[i] * 255;
-      h[k + 2] = w.flowDir[i] + 1;
+      // Direction D8 + 1 sur 4 bits, usure (sentiers) sur les 4 bits de poids fort.
+      h[k + 2] = w.flowDir[i] + 1 + (Math.min(15, Math.round(w.wear[i] * 15)) << 4);
       // Champ : 0 = aucun, 1 = labouré sans céréales, puis croissance des céréales jusqu'à 255 (mûres).
       h[k + 3] = w.field[i] ? 1 + Math.min(1, w.crop[i]) * 254 : 0;
     }

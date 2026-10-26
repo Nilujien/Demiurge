@@ -32,7 +32,11 @@ Un pas (`Simulation.tick`) enchaîne :
 2. **Météo** (`Weather.step`) : les nuages de pluie dérivent avec le vent et déposent leur eau sur les cellules qu'ils couvrent, puis se dissipent. L'outil Pluie ne mouille jamais le sol directement : il charge un nuage au-dessus du pinceau.
 3. **Humidité** (`Hydrology.step`) : pluie de fond (majorée en altitude), ruissellement diffus vers les voisins plus bas proportionnel à la pente et au sol, recharge en bord d'eau, évaporation réduite par l'ombre de l'herbe et des arbres.
 4. **Végétation** (`Ecology.stepVegetation`) : l'herbe tend vers fertilité × aptitude du sol × humidité ; les arbres poussent selon fertilité et humidité, se disséminent à partir des arbres matures voisins, et enrichissent le sol. Sur un champ, seules les céréales semées poussent, en puisant dans la fertilité.
-5. **Populations** (`People.step`) : chaque habitant inactif choisit une tâche pour son village (chantier, récolte, abattage si le bois manque, semis, nouvelle parcelle, sinon flânerie), marche jusqu'à la cellule visée puis y travaille. Une parcelle est d'abord aplanie en terrasse (la cellule et ses voisines sont ramenées au niveau du champ contigu), puis labourée et semée. Chaque année, le village mange son grain et brûle un peu de bois ; il naît des enfants s'il reste du grain et de la place dans les maisons, on bâtit une maison quand le bois suffit, et un village prospère essaime un hameau plus loin. La famine et la vieillesse tuent ; un village vide disparaît et ses champs retournent à l'herbe. Les habitants ont leur propre `Rng`, dérivé de la graine.
+5. **Populations** (`People.step`) : chaque habitant inactif choisit une tâche pour son village (chantier, récolte, abattage si le bois manque, semis, nouvelle parcelle, sinon flânerie), marche jusqu'à la cellule visée puis y travaille. Une parcelle est d'abord aplanie en terrasse (la cellule et ses voisines sont ramenées au niveau du champ contigu), puis labourée et semée. Chaque année, le village mange son grain et brûle un peu de bois ; il naît des enfants s'il reste du grain et de la place dans les maisons, on bâtit une maison quand le bois suffit, et un village prospère essaime un hameau plus loin. La famine et la vieillesse tuent ; un village vide disparaît et ses champs retournent à l'herbe.
+
+   Contre la famine : un moissonneur ressème le champ aussitôt récolté et enchaîne les champs mûrs voisins avant de rentrer (un trajet par cycle) ; une naissance exige dix ans de réserve ; sous deux ans de réserve, les habitants cueillent baies et racines ; sous un an (disette), chantiers, abattages et terrassements sont abandonnés au profit de la nourriture. Chaque année, un village au grenier plein (plus de quinze ans de réserve) confie du grain à un porteur pour le voisin le plus démuni à moins de 45 cases. Livraisons et essaimage ne visent que des lieux atteignables à pied en ligne droite, sans traverser la mer. Les décès sont comptés par cause (`People.deaths`).
+
+   Les trajets utiles usent le sol (`World.wear`), et l'on marche plus vite là où il est usé : des sentiers en étoile se forment entre foyers, champs et forêts, jusqu'à relier les villages voisins. L'usure s'efface lentement quand plus personne ne passe, et l'herbe piétinée ne repousse pas. Les habitants ont leur propre `Rng`, dérivé de la graine.
 
 Le **réseau d'écoulement** (`Hydrology.computeFlow`) est plus coûteux et recalculé à la demande :
 
@@ -61,10 +65,10 @@ Les arbres sont des maillages low-poly dessinés en instanciation ; le vent est 
 
 Deux textures n×n portent l'état par cellule :
 
-| Texture    | R        | G           | B                | A        |
-| ---------- | -------- | ----------- | ---------------- | -------- |
-| `stateTex` | sol      | fertilité   | herbe            | altitude |
-| `hydroTex` | humidité | cours d'eau | direction D8 + 1 | champ    |
+| Texture    | R        | G           | B                                           | A        |
+| ---------- | -------- | ----------- | ------------------------------------------- | -------- |
+| `stateTex` | sol      | fertilité   | herbe                                       | altitude |
+| `hydroTex` | humidité | cours d'eau | direction D8 + 1 (4 bits) et usure (4 bits) | champ    |
 
 Le canal champ vaut 0 hors champ, 1 pour une terre labourée, puis croît avec les céréales jusqu'à 255 (mûres). `world.frag` y dessine la terre retournée en sillons et une bordure d'herbe sèche le long des côtés qui ne touchent pas un autre champ. De près (au moins 2,5 pixels par unité), le renderer plante sur les billons 3 rangées de 3 touffes de céréales instanciées (`buildCropMeshes`) : vertes, jaunissantes puis dorées avec épis, grandissant avec la récolte et ondulant sous une vague de vent qui traverse le champ (`u_wave`). De loin, une touffe ferait moins d'un pixel : le sol colore lui-même les rangées.
 

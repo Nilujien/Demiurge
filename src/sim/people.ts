@@ -48,6 +48,25 @@ export const PEOPLE = {
   emigrants: 3,
   emigrationMin: 18,
   emigrationMax: 40,
+  /** Réserve exigée avant une naissance : tant d'années de grain pour chaque habitant. */
+  birthReserveYears: 10,
+  /** En deçà de tant d'années de réserve, le village ne fait plus que nourrir les siens. */
+  famineYears: 1,
+  /** Grain qu'un moissonneur porte au plus, et rayon dans lequel il enchaîne les champs mûrs. */
+  maxLoad: 9,
+  chainRadius: 4,
+  /** Cueillette de secours quand le grenier tombe sous tant d'années de réserve. */
+  forageBelowYears: 2,
+  forageTicks: 8,
+  forageGrain: 1,
+  forageRadius: 10,
+  /** Entraide : un village au grenier plein envoie du grain à un voisin affamé. */
+  aidRadius: 45,
+  aidSurplusYears: 15,
+  aidLoad: 8,
+  /** Usure laissée par un pas sur une cellule, et gain de vitesse sur un sentier bien marqué. */
+  wearPerStep: 0.015,
+  pathSpeedup: 0.4,
 } as const;
 
 export const Task = {
@@ -59,8 +78,21 @@ export const Task = {
   Harvest: 5,
   Build: 6,
   Return: 7,
+  Forage: 8,
+  Deliver: 9,
 } as const;
 export type TaskId = (typeof Task)[keyof typeof Task];
+
+/** Tâches qui réservent leur cellule : deux habitants n'y travaillent pas en même temps. */
+const RESERVING: ReadonlySet<number> = new Set([
+  Task.Chop,
+  Task.Prepare,
+  Task.Sow,
+  Task.Harvest,
+  Task.Forage,
+]);
+/** Tâches abandonnées en cas de disette. */
+const DEFERRABLE: ReadonlySet<number> = new Set([Task.Wander, Task.Build, Task.Chop, Task.Prepare]);
 
 export const Carry = { None: 0, Wood: 1, Grain: 2 } as const;
 export type CarryId = (typeof Carry)[keyof typeof Carry];
@@ -77,9 +109,10 @@ export const Activity = {
   Wood: 7,
   Grain: 8,
   Hungry: 9,
+  Forage: 10,
 } as const;
 export type ActivityId = (typeof Activity)[keyof typeof Activity];
-export const ACTIVITIES = 10;
+export const ACTIVITIES = 11;
 
 export interface Villager {
   readonly id: number;
@@ -106,6 +139,8 @@ export interface Villager {
   age: number;
   lifespan: number;
   hunger: number;
+  /** Village destinataire d'une livraison d'entraide (tâche Deliver). */
+  deliverTo: Tribe | null;
 }
 
 export interface House {
@@ -135,6 +170,8 @@ export class People {
   readonly tribes: Tribe[] = [];
   /** Le relief a été terrassé depuis la dernière lecture. */
   heightsChanged = false;
+  /** Décès depuis la création du monde, par cause. */
+  readonly deaths = { age: 0, hunger: 0, drowned: 0 };
 
   private rng: Rng;
   private nextId = 1;
@@ -156,6 +193,7 @@ export class People {
     this.reserved.fill(0);
     this.rng = new Rng(seed ^ 0x5eed1e);
     this.ticks = 0;
+    this.deaths.age = this.deaths.hunger = this.deaths.drowned = 0;
   }
 
   get population(): number {
@@ -227,7 +265,13 @@ export class People {
       v.px = v.x;
       v.pz = v.z;
       v.age++;
-      if (v.age > v.lifespan || w.heightAt(v.x, v.z) < w.seaLevel) {
+      if (v.age > v.lifespan) {
+        this.deaths.age++;
+        this.remove(k);
+        continue;
+      }
+      if (w.heightAt(v.x, v.z) < w.seaLevel) {
+        this.deaths.drowned++;
         this.remove(k);
         continue;
       }
@@ -290,6 +334,7 @@ export class People {
       age: adult ? Math.floor((14 + this.rng.next() * 20) * TICKS_PER_YEAR) : 0,
       lifespan: Math.floor(span * TICKS_PER_YEAR),
       hunger: 0,
+      deliverTo: null,
     };
     tribe.population++;
     this.villagers.push(v);
@@ -312,13 +357,18 @@ export class People {
       const v = this.villagers[k];
       if (v.tribe !== tribe) continue;
       v.hunger = fed ? 0 : v.hunger + 1;
-      if (v.hunger >= 3 && this.rng.next() < PEOPLE.starveChance) this.remove(k);
+      // Disette : on lâche chantiers, abattages et terrassements pour aller chercher à manger.
+      if (!fed && v.carry === Carry.None && DEFERRABLE.has(v.task)) this.release(v);
+      if (v.hunger >= 3 && this.rng.next() < PEOPLE.starveChance) {
+        this.deaths.hunger++;
+        this.remove(k);
+      }
     }
     const cap = this.capacity(tribe);
     if (
       tribe.population > 0 &&
       tribe.population < cap &&
-      tribe.grain >= 3 + tribe.population * 0.4 &&
+      tribe.grain >= 3 + tribe.population * PEOPLE.grainPerYear * PEOPLE.birthReserveYears &&
       this.villagers.length < PEOPLE.maxVillagers &&
       this.rng.next() < PEOPLE.birthChance
     ) {
@@ -335,6 +385,67 @@ export class People {
     ) {
       this.emigrate(tribe);
     }
+    this.sendAid(tribe);
+  }
+
+  /** Grain que consomme un village en tant d'années. */
+  private reserve(tribe: Tribe, years: number): number {
+    return tribe.population * PEOPLE.grainPerYear * years;
+  }
+
+  /**
+   * Entraide : un village au grenier bien rempli confie du grain à un porteur pour le voisin
+   * atteignable le plus démuni, s'il est sous sa réserve de secours.
+   */
+  private sendAid(from: Tribe): void {
+    const surplus = from.grain - this.reserve(from, PEOPLE.aidSurplusYears) - PEOPLE.aidLoad;
+    if (surplus <= 0) return;
+    const n = this.world.n;
+    const fx = from.home % n;
+    const fz = Math.floor(from.home / n);
+    let needy: Tribe | null = null;
+    let worst = 0;
+    for (const t of this.tribes) {
+      if (t === from || t.population === 0) continue;
+      const tx = t.home % n;
+      const tz = Math.floor(t.home / n);
+      if (Math.hypot(tx - fx, tz - fz) > PEOPLE.aidRadius) continue;
+      const lack = this.reserve(t, PEOPLE.forageBelowYears) + 1 - t.grain - this.incoming(t);
+      if (lack > worst && this.reachable(fx, fz, tx, tz)) {
+        worst = lack;
+        needy = t;
+      }
+    }
+    if (!needy) return;
+    // Le porteur est pris parmi ceux dont la tâche peut attendre.
+    const porter = this.villagers.find(
+      (v) => v.tribe === from && v.carry === Carry.None && (v.task === Task.Idle || DEFERRABLE.has(v.task)),
+    );
+    if (!porter) return;
+    this.release(porter);
+    porter.carry = Carry.Grain;
+    porter.load = Math.min(PEOPLE.aidLoad, surplus);
+    from.grain -= porter.load;
+    porter.deliverTo = needy;
+    this.assign(porter, Task.Deliver, needy.home, 0);
+  }
+
+  /** Grain déjà en route vers un village. */
+  private incoming(t: Tribe): number {
+    let sum = 0;
+    for (const v of this.villagers) if (v.task === Task.Deliver && v.deliverTo === t) sum += v.load;
+    return sum;
+  }
+
+  /** Trajet en ligne droite sans traverser la mer : c'est ainsi que marchent les habitants. */
+  private reachable(x0: number, z0: number, x1: number, z1: number): boolean {
+    const w = this.world;
+    const steps = Math.ceil(Math.hypot(x1 - x0, z1 - z0) * 2);
+    for (let k = 1; k < steps; k++) {
+      const f = k / steps;
+      if (w.heightAt(x0 + (x1 - x0) * f, z0 + (z1 - z0) * f) < w.seaLevel + 0.05) return false;
+    }
+    return true;
   }
 
   /** Quelques habitants partent avec des vivres fonder un hameau sur un site libre, à distance. */
@@ -356,7 +467,7 @@ export class People {
       const near = this.tribes.some(
         (t) => Math.hypot((t.home % n) - x, Math.floor(t.home / n) - z) < PEOPLE.emigrationMin,
       );
-      if (near) continue;
+      if (near || !this.reachable(hx, hz, x, z)) continue;
       const score = 0.1 + w.fertility[i] + w.moisture[i] - w.orthogonalRelief(x, z);
       if (score > bestScore) {
         bestScore = score;
@@ -460,19 +571,33 @@ export class People {
   private choose(v: Villager): void {
     const t = v.tribe;
     const w = this.world;
+    if (v.carry === Carry.Grain && v.load < PEOPLE.maxLoad) {
+      // Le moissonneur enchaîne les champs mûrs voisins avant de rentrer.
+      const next = this.nearestField(v, (i) => w.crop[i] >= 1, PEOPLE.chainRadius);
+      if (next >= 0) return this.assign(v, Task.Harvest, next, PEOPLE.harvestTicks);
+    }
     if (v.carry !== Carry.None) {
       if (w.height[t.home] >= w.seaLevel) return this.assign(v, Task.Return, t.home, 0);
       v.carry = Carry.None; // foyer noyé : la charge est perdue
+      v.load = 0;
     }
 
+    const stock = t.grain + this.incoming(t);
+    const famine = stock < this.reserve(t, PEOPLE.famineYears) + 1;
     const site = t.houses.find((h) => h.progress < 1);
-    if (site && this.rng.next() < 0.5) return this.assign(v, Task.Build, site.cell, 0);
+    if (site && !famine && this.rng.next() < 0.5) return this.assign(v, Task.Build, site.cell, 0);
 
     const ripe = this.nearestField(v, (i) => w.crop[i] >= 1);
     if (ripe >= 0) return this.assign(v, Task.Harvest, ripe, PEOPLE.harvestTicks);
 
+    // Grenier presque vide : on cueille baies et racines en attendant la récolte (toujours en disette).
+    if (stock < this.reserve(t, PEOPLE.forageBelowYears) + 1 && (famine || this.rng.next() < 0.5)) {
+      const spot = this.findForage(v);
+      if (spot >= 0) return this.assign(v, Task.Forage, spot, PEOPLE.forageTicks);
+    }
+
     const woodTarget = 2 + t.population * 0.3 + (t.population >= this.capacity(t) - 1 ? PEOPLE.houseWood : 0);
-    if (t.wood < woodTarget && this.rng.next() < 0.55) {
+    if (t.wood < woodTarget && !famine && this.rng.next() < 0.55) {
       const tree = this.nearestTree(v);
       if (tree >= 0) return this.assign(v, Task.Chop, tree, PEOPLE.chopTicks);
     }
@@ -503,13 +628,11 @@ export class People {
     v.working = false;
     v.terracing = false;
     v.patience = PEOPLE.patience;
-    if (task === Task.Chop || task === Task.Prepare || task === Task.Sow || task === Task.Harvest) {
-      this.reserved[target] = 1;
-    }
+    if (RESERVING.has(task)) this.reserved[target] = 1;
   }
 
   private release(v: Villager): void {
-    if (v.target >= 0 && v.task !== Task.Build && v.task !== Task.Return && v.task !== Task.Wander) {
+    if (v.target >= 0 && RESERVING.has(v.task)) {
       this.reserved[v.target] = 0;
     }
     v.task = Task.Idle;
@@ -517,13 +640,39 @@ export class People {
     v.working = false;
   }
 
-  private nearestField(v: Villager, ok: (i: number) => boolean): number {
+  private nearestField(v: Villager, ok: (i: number) => boolean, maxDistance = Infinity): number {
     const n = this.world.n;
     let best = -1;
-    let bestD = Infinity;
+    let bestD = maxDistance;
     for (const i of v.tribe.fields) {
       if (this.reserved[i] || !ok(i)) continue;
       const d = Math.hypot((i % n) - v.x, Math.floor(i / n) - v.z);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  /** Un coin de cueillette près du village : sous les arbres mûrs ou dans l'herbe haute. */
+  private findForage(v: Villager): number {
+    const w = this.world;
+    const n = w.n;
+    const hx = v.tribe.home % n;
+    const hz = Math.floor(v.tribe.home / n);
+    let best = -1;
+    let bestD = Infinity;
+    for (let k = 0; k < 40; k++) {
+      const a = this.rng.next() * Math.PI * 2;
+      const r = 1 + this.rng.next() * PEOPLE.forageRadius;
+      const x = Math.round(hx + Math.cos(a) * r);
+      const z = Math.round(hz + Math.sin(a) * r);
+      if (!w.inside(x, z)) continue;
+      const i = z * n + x;
+      if (this.reserved[i] || w.field[i] || w.building[i] || w.height[i] < w.seaLevel + 0.1) continue;
+      if (w.tree[i] < 0.5 && w.grass[i] < 0.6) continue;
+      const d = Math.hypot(x - v.x, z - v.z);
       if (d < bestD) {
         bestD = d;
         best = i;
@@ -628,9 +777,13 @@ export class People {
         const h1 = w.heightAt(nx, nz);
         if (h1 < w.seaLevel + 0.05) return this.release(v);
         const climb = Math.max(0, h1 - h0) / step;
-        const k = 1 / (1 + climb * 1.5);
-        v.x += (dx / d) * step * k;
-        v.z += (dz / d) * step * k;
+        // Les sentiers se tracent sur les trajets utiles (pas en flânant), et l'on y marche plus vite.
+        const cell = w.index(Math.round(v.x), Math.round(v.z));
+        const k = (1 + PEOPLE.pathSpeedup * w.wear[cell]) / (1 + climb * 1.5);
+        const move = Math.min(d, step * k);
+        v.x += (dx / d) * move;
+        v.z += (dz / d) * move;
+        if (v.task !== Task.Wander) w.wear[cell] = Math.min(1, w.wear[cell] + PEOPLE.wearPerStep);
         v.heading = Math.atan2(dz, dx);
         return;
       }
@@ -676,12 +829,34 @@ export class People {
       case Task.Harvest:
         if (!w.field[i] || w.crop[i] < 1) return this.release(v);
         if (--v.work <= 0) {
+          // Moisson puis semis aussitôt, sur place : un seul trajet par cycle de culture.
           w.crop[i] = 0;
           v.carry = Carry.Grain;
-          v.load = PEOPLE.grainPerHarvest;
+          v.load += PEOPLE.grainPerHarvest;
+          this.assign(v, Task.Sow, i, PEOPLE.sowTicks);
+          v.working = true;
+        }
+        break;
+      case Task.Forage:
+        if (--v.work <= 0) {
+          v.carry = Carry.Grain;
+          v.load += PEOPLE.forageGrain;
+          w.grass[i] *= 0.7;
           this.release(v);
         }
         break;
+      case Task.Deliver: {
+        const to = v.deliverTo;
+        if (to && this.tribes.includes(to)) to.grain += v.load;
+        else v.tribe.grain += v.load; // le village a disparu : le grain revient au sien
+        v.carry = Carry.None;
+        v.load = 0;
+        v.deliverTo = null;
+        this.release(v);
+        // Retour au village par une flânerie dont la cible est le foyer.
+        this.assign(v, Task.Wander, v.tribe.home, 1);
+        break;
+      }
       case Task.Build: {
         const house = v.tribe.houses.find((h) => h.cell === i);
         if (!house || house.progress >= 1) return this.release(v);
@@ -752,7 +927,10 @@ export function activityOf(v: Villager): ActivityId {
       return Activity.Harvest;
     case Task.Build:
       return Activity.Build;
+    case Task.Forage:
+      return Activity.Forage;
     case Task.Return:
+    case Task.Deliver:
       return v.carry === Carry.Wood
         ? Activity.Wood
         : v.carry === Carry.Grain

@@ -1,0 +1,56 @@
+# Demiurge
+
+Jeu web bac à sable : le doigt ou le curseur sculpte une île en relief, change les types de sol, fertilise, arrose et fait pousser des forêts. Rendu 3D isométrique en pixel art animé, WebGL2, sans moteur ni dépendance d'exécution.
+
+## Démarrer
+
+Prérequis : Node.js 22.12 ou plus récent (exigé par Vitest ; Vite seul accepte 20.19).
+
+```bash
+npm install
+npm run dev        # serveur de développement avec rechargement à chaud
+npm run build      # vérification des types + build de production dans dist/
+npm run preview    # sert dist/ localement
+```
+
+## Qualité
+
+```bash
+npm run check      # typecheck + lint + tests : à lancer avant chaque commit
+npm test           # tests unitaires (Vitest)
+npm run lint       # ESLint
+npm run format     # Prettier
+```
+
+La CI GitHub (`.github/workflows/ci.yml`) exécute les mêmes vérifications et le build sur chaque push.
+
+## Commandes en jeu
+
+| Action                      | Souris / clavier                            | Tactile                |
+| --------------------------- | ------------------------------------------- | ---------------------- |
+| Appliquer l'outil           | clic gauche                                 | un doigt               |
+| Déplacer la vue             | clic droit, clic milieu ou Espace + glisser | deux doigts            |
+| Zoom                        | molette, `+` `-`                            | pincer                 |
+| Pivoter d'un quart de tour  | `Q` `E`                                     | boutons de l'interface |
+| Outils                      | `1` à `8`                                   | boutons                |
+| Taille du pinceau           | `[` `]`                                     | curseur                |
+| Calque humidité / fertilité | `H`                                         | boutons                |
+| Pause                       | `P`                                         | bouton                 |
+
+## Organisation
+
+```
+src/
+  config.ts        constantes du monde et du moteur
+  core/            maths, bruit, générateur aléatoire déterministe
+  sim/             simulation pure (aucune dépendance au DOM ni à WebGL)
+  tools/           pinceaux : effets d'un geste sur le monde
+  render/          caméra iso, rendu WebGL2, palette, maillages, shaders GLSL
+  input/           Pointer Events et clavier
+  ui/              panneaux HTML et styles
+  main.ts          assemblage et boucle de jeu
+tests/             tests unitaires de la simulation et des outils
+docs/              architecture et feuille de route
+```
+
+Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour les choix techniques et [docs/ROADMAP.md](docs/ROADMAP.md) pour la suite.

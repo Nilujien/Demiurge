@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f0e1a" />
+    <title>Demiurge</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=Silkscreen&display=swap"
+    />
+  </head>
+  <body>
+    <canvas id="view" aria-label="Monde de Demiurge"></canvas>
+
+    <aside class="panel tools" aria-label="Outils du démiurge">
+      <div class="brand">
+        <h1>DEMIURGE</h1>
+        <span class="tag">v0.2</span>
+      </div>
+
+      <div class="section">
+        <div class="label">Outil</div>
+        <div class="toolgrid" id="toolgrid"></div>
+      </div>
+
+      <div class="section" id="soilPick" hidden>
+        <div class="label">Type de sol</div>
+        <div class="soils" id="soils"></div>
+      </div>
+
+      <div class="section">
+        <div class="label">Calque <span>H</span></div>
+        <div class="row" id="overlays">
+          <button class="btn" id="ov0" data-ov="0">Aucun</button>
+          <button class="btn" id="ov1" data-ov="1">Humidité</button>
+          <button class="btn" id="ov2" data-ov="2">Fertilité</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <label class="label" for="brush">Pinceau <output id="brushOut">4</output></label>
+        <input type="range" id="brush" min="1" max="14" step="0.5" value="4" />
+      </div>
+
+      <div class="section">
+        <label class="label" for="sea">Niveau de la mer <output id="seaOut">0.0</output></label>
+        <input type="range" id="sea" min="-4" max="8" step="0.25" value="0" />
+      </div>
+
+      <div class="section">
+        <div class="label">Vue</div>
+        <div class="row">
+          <button class="btn" id="rotL" title="Pivoter (Q)">⟲ Q</button>
+          <button class="btn" id="rotR" title="Pivoter (E)">E ⟳</button>
+          <button class="btn" id="zoomOut" title="Dézoomer">−</button>
+          <button class="btn" id="zoomIn" title="Zoomer">+</button>
+        </div>
+        <label class="label" for="px">Taille du pixel</label>
+        <select id="px">
+          <option value="2">2 px — fin</option>
+          <option value="3" selected>3 px — standard</option>
+          <option value="4">4 px — gros</option>
+          <option value="6">6 px — rétro</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <button class="btn" id="pause" aria-pressed="false">Pause</button>
+        <button class="btn" id="regen">Nouveau monde</button>
+      </div>
+    </aside>
+
+    <div class="panel stats" aria-live="off">
+      <div class="stat"><span>Arbres</span><b id="sTrees">0</b></div>
+      <div class="stat"><span>Couvert</span><b id="sCover">0 %</b></div>
+      <div class="stat"><span>Temps</span><b id="sTime">an 0</b></div>
+      <div class="stat"><span>FPS</span><b id="sFps">–</b></div>
+    </div>
+
+    <div class="panel help">
+      <span><kbd>Clic G</kbd> appliquer</span>
+      <span><kbd>Clic D</kbd>/<kbd>Milieu</kbd>/<kbd>Espace</kbd> + glisser : déplacer</span>
+      <span><kbd>Molette</kbd> zoom</span>
+      <span><kbd>Q</kbd> <kbd>E</kbd> pivoter</span>
+      <span><kbd>1</kbd>–<kbd>8</kbd> outils</span>
+      <span><kbd>H</kbd> calque</span>
+      <span><kbd>[</kbd> <kbd>]</kbd> pinceau</span>
+      <span><kbd>P</kbd> pause</span>
+    </div>
+
+    <div id="nogl" hidden>
+      <p>
+        Ce prototype a besoin de WebGL2. Ouvre-le dans un navigateur récent (Chrome, Edge, Firefox ou Safari)
+        avec l'accélération matérielle activée.
+      </p>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

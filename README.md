@@ -2,6 +2,8 @@
 
 Jeu web bac à sable : le doigt ou le curseur sculpte une île en relief, change les types de sol, fertilise, arrose et fait pousser des forêts. Rendu 3D isométrique en pixel art animé, WebGL2, sans moteur ni dépendance d'exécution.
 
+**Jouer en ligne : https://nilujien.github.io/Demiurge/**
+
 ## Démarrer
 
 Prérequis : Node.js 22.12 ou plus récent (exigé par Vitest ; Vite seul accepte 20.19).
@@ -22,7 +24,7 @@ npm run lint       # ESLint
 npm run format     # Prettier
 ```
 
-La CI GitHub (`.github/workflows/ci.yml`) exécute les mêmes vérifications et le build sur chaque push.
+La CI GitHub (`.github/workflows/ci.yml`) exécute les mêmes vérifications et le build sur chaque push. Chaque push sur `main` publie aussi le jeu sur GitHub Pages (`.github/workflows/pages.yml`), après les mêmes vérifications.
 
 ## Commandes en jeu
 

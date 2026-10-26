@@ -37,8 +37,8 @@ export const PEOPLE = {
   lifespanMax: 80,
   /** Pas accordés pour atteindre une cible avant d'y renoncer. */
   patience: 260,
-  maxVillagers: 320,
-  maxTribes: 12,
+  maxVillagers: 800,
+  maxTribes: 24,
   /** Distance en deçà de laquelle un nouvel habitant rejoint un village existant. */
   joinRadius: 24,
   /** Essaimage : un village prospère envoie quelques habitants fonder un hameau plus loin. */

@@ -1,7 +1,7 @@
 /** Paramètres globaux du monde et du moteur. Unité spatiale : 1 = une cellule de la grille. */
 
 /** Côté de la grille de simulation (cellules). */
-export const GRID = 128;
+export const GRID = 256;
 
 /** Altitude minimale et maximale encodables (unités monde). */
 export const H_MIN = -10;

@@ -180,12 +180,12 @@ export class Hud {
     b.textContent = this.state.paused ? 'Reprendre' : 'Pause';
   }
 
-  showStats(s: WorldStats, years: number, fps: number): void {
+  showStats(s: WorldStats, time: string, fps: number): void {
     $('sTrees').textContent = s.trees.toLocaleString('fr-FR');
     $('sCover').textContent = `${Math.round(s.cover * 100)} %`;
     $('sPeople').textContent = s.population.toLocaleString('fr-FR');
     $('sFields').textContent = s.fields.toLocaleString('fr-FR');
-    $('sTime').textContent = `an ${years}`;
+    $('sTime').textContent = time;
     $('sFps').textContent = String(Math.round(fps));
   }
 }

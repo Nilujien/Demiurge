@@ -16,7 +16,7 @@ describe('Simulation', () => {
   });
 
   it('les villages cultivent des champs au fil des années', () => {
-    const sim = new Simulation(1789);
+    const sim = new Simulation(1789, 128);
     for (let t = 0; t < 400; t++) sim.tick();
     const s = sim.stats();
     expect(s.population).toBeGreaterThan(0);
@@ -24,11 +24,24 @@ describe('Simulation', () => {
   });
 
   it('produit des forêts et des cours d’eau pendant la préhistoire', () => {
-    const sim = new Simulation(1789);
+    const sim = new Simulation(1789, 128);
     const s = sim.stats();
     expect(s.trees).toBeGreaterThan(100);
     expect(s.cover).toBeGreaterThan(0.1);
     expect(sim.world.stream.some((v) => v > 0)).toBe(true);
+  });
+
+  it('donne le même monde, que la genèse soit faite d’un coup ou par tranches', () => {
+    const whole = new Simulation(7, 48);
+    const chunked = new Simulation(7, 48, true);
+    expect(chunked.inGenesis).toBe(true);
+    let slices = 0;
+    while (!chunked.advanceGenesis(0)) slices++;
+    expect(slices).toBeGreaterThan(10);
+    expect(chunked.genesisProgress).toBe(1);
+    expect(chunked.world.tree).toEqual(whole.world.tree);
+    expect(chunked.world.height).toEqual(whole.world.height);
+    expect(chunked.people.population).toBe(whole.people.population);
   });
 
   it('remet les compteurs à zéro et signale tout comme modifié après génération', () => {

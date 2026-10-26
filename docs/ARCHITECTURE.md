@@ -57,6 +57,8 @@ Les paramètres sont regroupés en tête de module (`HYDRO`, `ECO`, `RAIN`, `PEO
 
 Les arbres sont 3 maillages low-poly (feuillu, conifère, buisson) dessinés en instanciation ; le vent est appliqué dans le vertex shader. Le même programme dessine les accessoires : habitants (mains vides, chargés de bois ou de grain, positions interpolées entre deux pas de simulation et agrandis aux faibles zooms), maisons, nuages (transparence tramée) et gouttes de pluie (calculées sans état à partir du temps). Nuages et gouttes n'écrivent pas la profondeur, pour ne pas tracer de contours.
 
+**Bulles d'activité** : `activityOf` (simulation) dit ce que fait chaque habitant (abattage, terrassement, labour, semis, récolte, chantier, bois ou grain rapporté, faim). Un programme dédié (`bubble.vert` / `bubble.frag`) dessine au-dessus de sa tête une bulle de 12×14 pixels basse résolution, à taille fixe quel que soit le zoom et accrochée à la grille des pixels, lue dans un atlas généré au démarrage (`icons.ts`). Les bulles sont dessinées sans test de profondeur et n'apparaissent qu'à partir de 4 pixels par unité ; elles font un petit saut quand l'activité change.
+
 Deux textures n×n portent l'état par cellule :
 
 | Texture    | R        | G           | B                | A        |

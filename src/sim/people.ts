@@ -65,6 +65,22 @@ export type TaskId = (typeof Task)[keyof typeof Task];
 export const Carry = { None: 0, Wood: 1, Grain: 2 } as const;
 export type CarryId = (typeof Carry)[keyof typeof Carry];
 
+/** Activité affichée au-dessus d'un habitant (contrat d'indices avec l'atlas des bulles). */
+export const Activity = {
+  None: 0,
+  Chop: 1,
+  Terrace: 2,
+  Till: 3,
+  Sow: 4,
+  Harvest: 5,
+  Build: 6,
+  Wood: 7,
+  Grain: 8,
+  Hungry: 9,
+} as const;
+export type ActivityId = (typeof Activity)[keyof typeof Activity];
+export const ACTIVITIES = 10;
+
 export interface Villager {
   readonly id: number;
   tribe: Tribe;
@@ -82,6 +98,8 @@ export interface Villager {
   work: number;
   /** Arrivé à la cible : en train de travailler. */
   working: boolean;
+  /** Préparation d'une parcelle : encore au terrassement (sinon au labour). */
+  terracing: boolean;
   patience: number;
   carry: CarryId;
   load: number;
@@ -265,6 +283,7 @@ export class People {
       target: -1,
       work: 0,
       working: false,
+      terracing: false,
       patience: 0,
       carry: Carry.None,
       load: 0,
@@ -482,6 +501,7 @@ export class People {
     v.target = target;
     v.work = work;
     v.working = false;
+    v.terracing = false;
     v.patience = PEOPLE.patience;
     if (task === Task.Chop || task === Task.Prepare || task === Task.Sow || task === Task.Harvest) {
       this.reserved[target] = 1;
@@ -631,7 +651,8 @@ export class People {
         break;
       case Task.Prepare:
         if (!this.plotFree(i, tx, tz, true)) return this.release(v);
-        if (this.flatten(i, tx, tz)) {
+        v.terracing = this.flatten(i, tx, tz);
+        if (v.terracing) {
           if (--v.patience <= 0) this.release(v);
           break;
         }
@@ -714,5 +735,30 @@ export class People {
     }
     if (busy) this.heightsChanged = true;
     return busy;
+  }
+}
+
+/** Ce que fait un habitant en ce moment, en route ou sur place. La faim prime sur tout le reste. */
+export function activityOf(v: Villager): ActivityId {
+  if (v.hunger > 0) return Activity.Hungry;
+  switch (v.task) {
+    case Task.Chop:
+      return Activity.Chop;
+    case Task.Prepare:
+      return v.working && !v.terracing ? Activity.Till : Activity.Terrace;
+    case Task.Sow:
+      return Activity.Sow;
+    case Task.Harvest:
+      return Activity.Harvest;
+    case Task.Build:
+      return Activity.Build;
+    case Task.Return:
+      return v.carry === Carry.Wood
+        ? Activity.Wood
+        : v.carry === Carry.Grain
+          ? Activity.Grain
+          : Activity.None;
+    default:
+      return Activity.None;
   }
 }

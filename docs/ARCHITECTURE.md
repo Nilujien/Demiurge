@@ -29,8 +29,10 @@ main.ts : boucle requestAnimationFrame
 Un pas (`Simulation.tick`) enchaîne :
 
 1. **Fertilité** : diffusion lente entre voisins orthogonaux, légère décroissance.
-2. **Humidité** (`Hydrology.step`) : pluie (majorée en altitude), ruissellement diffus vers les voisins plus bas proportionnel à la pente et au sol, recharge en bord d'eau, évaporation réduite par l'ombre de l'herbe et des arbres.
-3. **Végétation** (`Ecology.stepVegetation`) : l'herbe tend vers fertilité × aptitude du sol × humidité ; les arbres poussent selon fertilité et humidité, se disséminent à partir des arbres matures voisins, et enrichissent le sol.
+2. **Météo** (`Weather.step`) : les nuages de pluie dérivent avec le vent et déposent leur eau sur les cellules qu'ils couvrent, puis se dissipent. L'outil Pluie ne mouille jamais le sol directement : il charge un nuage au-dessus du pinceau.
+3. **Humidité** (`Hydrology.step`) : pluie de fond (majorée en altitude), ruissellement diffus vers les voisins plus bas proportionnel à la pente et au sol, recharge en bord d'eau, évaporation réduite par l'ombre de l'herbe et des arbres.
+4. **Végétation** (`Ecology.stepVegetation`) : l'herbe tend vers fertilité × aptitude du sol × humidité ; les arbres poussent selon fertilité et humidité, se disséminent à partir des arbres matures voisins, et enrichissent le sol. Sur un champ, seules les céréales semées poussent, en puisant dans la fertilité.
+5. **Populations** (`People.step`) : chaque habitant inactif choisit une tâche pour son village (chantier, récolte, abattage si le bois manque, semis, nouvelle parcelle, sinon flânerie), marche jusqu'à la cellule visée puis y travaille. Une parcelle est d'abord aplanie en terrasse (la cellule et ses voisines sont ramenées au niveau du champ contigu), puis labourée et semée. Chaque année, le village mange son grain et brûle un peu de bois ; il naît des enfants s'il reste du grain et de la place dans les maisons, on bâtit une maison quand le bois suffit, et un village prospère essaime un hameau plus loin. La famine et la vieillesse tuent ; un village vide disparaît et ses champs retournent à l'herbe. Les habitants ont leur propre `Rng`, dérivé de la graine.
 
 Le **réseau d'écoulement** (`Hydrology.computeFlow`) est plus coûteux et recalculé à la demande :
 
@@ -38,7 +40,7 @@ Le **réseau d'écoulement** (`Hydrology.computeFlow`) est plus coûteux et reca
 - accumulation : les cellules sont parcourues de la plus haute à la plus basse, chacune transmet sa surface drainée (pondérée par le sol, le couvert et l'humidité) à sa voisine aval ;
 - l'intensité de cours d'eau est un `smoothstep` de cette accumulation. Elle sature l'humidité des berges et dépose des alluvions.
 
-Les paramètres sont regroupés en tête de module (`HYDRO`, `ECO`) et par sol dans `SOILS`.
+Les paramètres sont regroupés en tête de module (`HYDRO`, `ECO`, `RAIN`, `PEOPLE`) et par sol dans `SOILS`.
 
 ## Rendu (`src/render`)
 
@@ -53,14 +55,16 @@ Les paramètres sont regroupés en tête de module (`HYDRO`, `ECO`) et par sol d
 | 2                 | plan d'eau           | profondeur, reflets, écume                                           |
 | 3                 | tranches d'eau       | mer vue de côté                                                      |
 
-Les arbres sont 3 maillages low-poly (feuillu, conifère, buisson) dessinés en instanciation ; le vent est appliqué dans le vertex shader.
+Les arbres sont 3 maillages low-poly (feuillu, conifère, buisson) dessinés en instanciation ; le vent est appliqué dans le vertex shader. Le même programme dessine les accessoires : habitants (mains vides, chargés de bois ou de grain, positions interpolées entre deux pas de simulation et agrandis aux faibles zooms), maisons, nuages (transparence tramée) et gouttes de pluie (calculées sans état à partir du temps). Nuages et gouttes n'écrivent pas la profondeur, pour ne pas tracer de contours.
 
 Deux textures n×n portent l'état par cellule :
 
 | Texture    | R        | G           | B                | A        |
 | ---------- | -------- | ----------- | ---------------- | -------- |
 | `stateTex` | sol      | fertilité   | herbe            | altitude |
-| `hydroTex` | humidité | cours d'eau | direction D8 + 1 | —        |
+| `hydroTex` | humidité | cours d'eau | direction D8 + 1 | champ    |
+
+Le canal champ vaut 0 hors champ, 1 pour une terre labourée, puis croît avec les céréales jusqu'à 255 (mûres) : `world.frag` y dessine sillons et rangées vertes, jaunissantes puis dorées.
 
 **Passe finale** : agrandissement au plus proche voisin, contour sombre là où la profondeur saute, ciel en dégradé tramé.
 

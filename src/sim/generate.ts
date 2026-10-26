@@ -34,6 +34,9 @@ export function generateTerrain(world: World, seed: number): void {
       world.grass[i] = 0;
       world.tree[i] = 0;
       world.treeKind[i] = 0;
+      world.field[i] = 0;
+      world.crop[i] = 0;
+      world.building[i] = 0;
       world.moisture[i] = h < world.seaLevel ? 1 : 0.3;
     }
   }

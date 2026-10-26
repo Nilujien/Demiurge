@@ -48,4 +48,29 @@ describe('applyTool', () => {
     for (let k = 0; k < 30; k++) applyTool(sim, 'flatten', stroke({ flattenTo: 2 }));
     expect(sim.world.height[i]).toBeCloseTo(2, 1);
   });
+
+  it("fait pleuvoir : l'eau passe par un nuage avant d'humidifier le sol", () => {
+    const sim = new Simulation(1, 32);
+    const w = sim.world;
+    const i = w.index(16, 16);
+    w.height[i] = 3;
+    w.moisture[i] = 0.1;
+    applyTool(sim, 'rain', stroke({ dt: 0.5 }));
+    expect(w.moisture[i]).toBeCloseTo(0.1);
+    expect(sim.weather.clouds.length).toBe(1);
+    sim.weather.step();
+    expect(w.moisture[i]).toBeGreaterThan(0.1);
+  });
+
+  it('fait apparaître des habitants sur la terre ferme', () => {
+    const sim = new Simulation(1, 32);
+    const w = sim.world;
+    sim.people.reset(1);
+    for (let z = 10; z < 23; z++) for (let x = 10; x < 23; x++) w.height[w.index(x, z)] = 3;
+    w.stream.fill(0);
+    w.soil.fill(Soil.Humus);
+    applyTool(sim, 'people', stroke());
+    expect(sim.people.population).toBe(1);
+    expect(sim.people.tribes).toHaveLength(1);
+  });
 });

@@ -5,7 +5,7 @@ void main(){
   vec3 p = a_pos;
   float ang = a_seed * 6.2831, c = cos(ang), s = sin(ang);
   p.xz = mat2(c, -s, s, c) * p.xz;
-  if (a_mat > 7.5) {
+  if (a_mat > 7.5 && a_mat < 9.5) {          // feuillage seulement : le vent
     float k = max(p.y - 0.4, 0.0);
     p.x += sin(u_tq * 2.6 + a_seed * 40.0) * 0.07 * k;
     p.z += cos(u_tq * 2.1 + a_seed * 23.0) * 0.05 * k;

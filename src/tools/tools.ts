@@ -3,7 +3,8 @@ import { hash2 } from '../core/noise';
 import type { Simulation } from '../sim/simulation';
 import { Soil, soilDef, type SoilId } from '../sim/soils';
 
-export type ToolId = 'raise' | 'lower' | 'flatten' | 'soil' | 'fertilize' | 'seed' | 'water' | 'cut';
+export type ToolId =
+  'raise' | 'lower' | 'flatten' | 'soil' | 'fertilize' | 'seed' | 'rain' | 'cut' | 'people';
 
 export interface ToolDef {
   readonly id: ToolId;
@@ -59,11 +60,11 @@ export const TOOLS: readonly ToolDef[] = [
     icon: ['...##...', '..####..', '.######.', '########', '.######.', '...##...', '...##...', '..####..'],
   },
   {
-    id: 'water',
-    label: 'Arroser',
+    id: 'rain',
+    label: 'Pluie',
     key: '7',
     color: '#82c9e0',
-    icon: ['...#....', '..###...', '..###...', '.#####..', '.#####..', '.##.##..', '..###...', '........'],
+    icon: ['..###...', '.#####..', '########', '########', '........', '.#..#..#', '#..#..#.', '........'],
   },
   {
     id: 'cut',
@@ -71,6 +72,13 @@ export const TOOLS: readonly ToolDef[] = [
     key: '8',
     color: '#e0a070',
     icon: ['..##....', '.####...', '######..', '.#####..', '..#.##..', '....##..', '.....##.', '......##'],
+  },
+  {
+    id: 'people',
+    label: 'Peupler',
+    key: '9',
+    color: '#f0c0e0',
+    icon: ['..##....', '..##....', '......#.', '.####.##', '#.##..#.', '..##..#.', '.#..#.#.', '.#..#...'],
   },
 ];
 
@@ -90,10 +98,25 @@ export interface Stroke {
 }
 
 const TERRAFORM_SPEED = 7;
+/** Habitants qui apparaissent par seconde de pinceau « Peupler ». */
+const SETTLE_RATE = 3;
 
 export function applyTool(sim: Simulation, tool: ToolId, s: Stroke): void {
+  if (tool === 'rain') {
+    // L'eau du démiurge ne mouille pas le sol directement : elle forme un nuage qui pleut ensuite.
+    sim.rain(s.x, s.z, s.radius, s.dt);
+    return;
+  }
+  if (tool === 'people') {
+    if (s.random() < SETTLE_RATE * s.dt) {
+      const a = s.random() * Math.PI * 2;
+      const r = s.random() * s.radius * 0.5;
+      sim.settle(s.x + Math.cos(a) * r, s.z + Math.sin(a) * r);
+    }
+    return;
+  }
   const w = sim.world;
-  const { n, height, soil, fertility, tree, moisture } = w;
+  const { n, height, soil, fertility, tree, field, building } = w;
   const r = s.radius;
   const x0 = Math.max(0, Math.floor(s.x - r));
   const x1 = Math.min(n - 1, Math.ceil(s.x + r));
@@ -126,6 +149,8 @@ export function applyTool(sim: Simulation, tool: ToolId, s: Stroke): void {
         case 'seed':
           if (
             tree[i] === 0 &&
+            !field[i] &&
+            !building[i] &&
             height[i] > w.seaLevel + 0.1 &&
             height[i] < SNOW_LINE &&
             soilDef(soil[i]).trees > 0 &&
@@ -135,9 +160,6 @@ export function applyTool(sim: Simulation, tool: ToolId, s: Stroke): void {
             sim.plant(i);
             fertility[i] = Math.max(fertility[i], 0.35);
           }
-          break;
-        case 'water':
-          if (height[i] >= w.seaLevel) moisture[i] = Math.min(1, moisture[i] + f * 2.5 * s.dt);
           break;
         case 'cut':
           if (tree[i] > 0 && d < r * (0.8 + 0.2 * hash2(x, z, 13))) tree[i] = 0;

@@ -72,7 +72,19 @@ void main(){
     if (m == 0 && p.y < u_W + 0.5) bd = max(bd - 1, 0);   // sable mouillé
     if (m <= 2 && moist > 0.55) bd = max(bd - 1, 0);       // sol détrempé
     col = ramp(m, bd);
-    if (!cliff && soil != 3 && m != 6 && fert > grass + 0.25) {   // pousses : la fertilité visible
+    bool field = hy.a > 0.002 && !cliff;
+    if (field) {                           // champ : sillons de terre retournée, rangées de céréales
+      float crop = (hy.a * 255.0 - 1.0) / 254.0;
+      bool ridge = fract(p.z * 2.5) < 0.5;
+      col = ramp(soil == 3 ? 1 : soil, ridge ? max(bd, 1) : max(bd - 1, 0));
+      if (crop > 0.0 && ridge && b < crop * 1.4 + 0.1) {
+        int cb = bd;
+        float w = sin(p.x * 0.7 + p.z * 0.4 - u_tq * 2.4);
+        if (w > 0.75) cb = min(cb + 1, 3);
+        col = crop >= 0.999 ? ramp(0, max(cb, 2)) : ramp(crop > 0.6 ? 5 : 4, cb);   // vert, jaunissant, doré
+      }
+    }
+    if (!field && !cliff && soil != 3 && m != 6 && fert > grass + 0.25) {   // pousses : la fertilité visible
       if (hash12(floor(p.xz * 3.0)) < (fert - grass - 0.2) * 0.6) col = ramp(11, 1);
     }
     float along, inten;

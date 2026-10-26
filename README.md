@@ -1,6 +1,6 @@
 # Demiurge
 
-Jeu web bac à sable : le doigt ou le curseur sculpte une île en relief, change les types de sol, fertilise, arrose et fait pousser des forêts. Rendu 3D isométrique en pixel art animé, WebGL2, sans moteur ni dépendance d'exécution.
+Jeu web bac à sable : le doigt ou le curseur sculpte une île en relief, change les types de sol, fertilise, fait pleuvoir et pousser des forêts. Des villages s'y installent : leurs habitants abattent des arbres pour le bois, aplanissent et labourent la terre, sèment et récoltent des céréales. Rendu 3D isométrique en pixel art animé, WebGL2, sans moteur ni dépendance d'exécution.
 
 **Jouer en ligne : https://nilujien.github.io/Demiurge/**
 
@@ -34,7 +34,7 @@ La CI GitHub (`.github/workflows/ci.yml`) exécute les mêmes vérifications et 
 | Déplacer la vue             | clic droit, clic milieu ou Espace + glisser | deux doigts            |
 | Zoom                        | molette, `+` `-`                            | pincer                 |
 | Pivoter d'un quart de tour  | `Q` `E`                                     | boutons de l'interface |
-| Outils                      | `1` à `8`                                   | boutons                |
+| Outils                      | `1` à `9`                                   | boutons                |
 | Taille du pinceau           | `[` `]`                                     | curseur                |
 | Calque humidité / fertilité | `H`                                         | boutons                |
 | Pause                       | `P`                                         | bouton                 |

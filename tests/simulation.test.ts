@@ -12,6 +12,15 @@ describe('Simulation', () => {
     expect(a.world.tree).toEqual(b.world.tree);
     expect(a.world.treeKind).toEqual(b.world.treeKind);
     expect(a.world.moisture).toEqual(b.world.moisture);
+    expect(a.people.villagers.map((v) => [v.x, v.z])).toEqual(b.people.villagers.map((v) => [v.x, v.z]));
+  });
+
+  it('les villages cultivent des champs au fil des années', () => {
+    const sim = new Simulation(1789);
+    for (let t = 0; t < 400; t++) sim.tick();
+    const s = sim.stats();
+    expect(s.population).toBeGreaterThan(0);
+    expect(s.fields).toBeGreaterThan(0);
   });
 
   it('produit des forêts et des cours d’eau pendant la préhistoire', () => {

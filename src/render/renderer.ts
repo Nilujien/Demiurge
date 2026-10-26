@@ -9,7 +9,7 @@ import type { World } from '../sim/world';
 import { FAR, type CameraFrame } from './camera';
 import { ATTRIB, createPositionVAO, createProgram, createTexture, hexToRgb, type Program } from './gl';
 import { BUBBLE_H, BUBBLE_W, buildBubbleAtlas } from './icons';
-import { buildPropMeshes, buildTreeMeshes } from './meshes';
+import { buildPropMeshes, buildTreeMeshes, CHIMNEY } from './meshes';
 import { SKY, rampUniformData } from './palette';
 import bubbleFrag from './shaders/bubble.frag?raw';
 import bubbleVert from './shaders/bubble.vert?raw';
@@ -51,6 +51,12 @@ const VILLAGER_MIN_PX = 3;
 const VILLAGER_HEIGHT = 0.7;
 const MAX_HOUSES = 1024;
 const HOUSE_SCALE = 1.25;
+/** Bouffées de fumée par cheminée, durée de leur ascension (s) et hauteur atteinte (unités monde). */
+const SMOKE_PUFFS = 8;
+const SMOKE_LIFE = 3.2;
+const SMOKE_RISE = 2.6;
+/** Trame des bouffées selon leur âge : la fumée se dissipe en montant. */
+const SMOKE_DITHER = [0.2, 0.45, 0.7] as const;
 /** Zoom minimal (pixels par unité) pour afficher les bulles : en deçà, elles masqueraient le village. */
 const BUBBLE_MIN_PPU = 4;
 /** Durée du petit saut d'une bulle quand l'activité change (secondes). */
@@ -112,6 +118,8 @@ export class Renderer {
   private readonly villagers: InstanceBatch[];
   private readonly houses: InstanceBatch;
   private readonly clouds: InstanceBatch;
+  /** Fumée des cheminées, une série par tranche d'âge (voir SMOKE_DITHER). */
+  private readonly smoke: InstanceBatch[];
   private readonly drops: InstanceBatch;
 
   private fbo: WebGLFramebuffer | null = null;
@@ -184,6 +192,7 @@ export class Renderer {
     );
     this.houses = this.createBatch(props.house, MAX_HOUSES);
     this.clouds = this.createBatch(props.cloud, RAIN.maxClouds);
+    this.smoke = SMOKE_DITHER.map(() => this.createBatch(props.smoke, MAX_HOUSES * SMOKE_PUFFS));
     this.drops = this.createBatch(props.drop, MAX_DROPS);
     const quad = new Float32Array([0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0]);
     this.bubbles = this.createBatch(quad, PEOPLE.maxVillagers);
@@ -313,6 +322,10 @@ export class Renderer {
     // Pluie et nuages : sans écriture de profondeur, pour ne pas tracer de contours dans la trame.
     gl.depthMask(false);
     this.draw(this.drops);
+    SMOKE_DITHER.forEach((d, k) => {
+      gl.uniform1f(t.uniform('u_dither'), d);
+      this.draw(this.smoke[k]);
+    });
     gl.uniform1f(t.uniform('u_dither'), 0.45);
     this.draw(this.clouds);
     gl.depthMask(true);
@@ -526,6 +539,29 @@ export class Renderer {
     batch.count++;
   }
 
+  /** Bouffées sans état : chacune monte, grossit et dérive avec le vent selon le temps. */
+  private pushSmoke(cell: number, x: number, z: number, cx: number, cz: number, time: number): void {
+    const base = this.world.height[cell] - 0.05;
+    const sx = x + cx * HOUSE_SCALE;
+    const sz = z + cz * HOUSE_SCALE;
+    const sy = base + CHIMNEY.top * HOUSE_SCALE;
+    const wind = Math.hypot(RAIN.windX, RAIN.windZ);
+    for (let k = 0; k < SMOKE_PUFFS; k++) {
+      const age = (time / SMOKE_LIFE + k / SMOKE_PUFFS + hash2(cell, k, 61) * 0.1) % 1;
+      const drift = age * age * 1.4;
+      const wobble = Math.sin(time * 2 + k * 1.7 + cell) * 0.08 * age;
+      const band = Math.min(SMOKE_DITHER.length - 1, Math.floor(age * SMOKE_DITHER.length));
+      this.push(
+        this.smoke[band],
+        sx + (RAIN.windX / wind) * drift + wobble,
+        sy + age * SMOKE_RISE,
+        sz + (RAIN.windZ / wind) * drift - wobble,
+        0.13 + 0.3 * age,
+        hash2(cell, k, 67),
+      );
+    }
+  }
+
   /** Habitants, maisons, nuages et gouttes : reconstruits à chaque image (positions interpolées). */
   private uploadActors(ppu: number, p: FrameParams): void {
     const w = this.world;
@@ -560,10 +596,17 @@ export class Renderer {
     this.upload(this.bubbles);
 
     this.houses.count = 0;
+    for (const s of this.smoke) s.count = 0;
+    // Rotation des maisons (graine 0.125 = un huitième de tour), comme dans tree.vert.
+    const ang = 0.125 * Math.PI * 2;
+    const chimneyX = Math.cos(ang) * CHIMNEY.x + Math.sin(ang) * CHIMNEY.z;
+    const chimneyZ = -Math.sin(ang) * CHIMNEY.x + Math.cos(ang) * CHIMNEY.z;
     for (const tribe of people.tribes) {
       for (const h of tribe.houses) {
         const x = h.cell % w.n;
         const z = Math.floor(h.cell / w.n);
+        // Un feu brûle dans les maisons achevées tant que le village a du bois.
+        if (h.progress >= 1 && tribe.wood > 0) this.pushSmoke(h.cell, x, z, chimneyX, chimneyZ, p.time);
         // Les chantiers sortent de terre au fil de la construction.
         this.push(
           this.houses,
@@ -576,6 +619,7 @@ export class Renderer {
       }
     }
     this.upload(this.houses);
+    for (const s of this.smoke) this.upload(s);
 
     this.clouds.count = 0;
     this.drops.count = 0;

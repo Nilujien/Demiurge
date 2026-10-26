@@ -103,11 +103,15 @@ export interface PropMeshes {
   villagerGrain: Float32Array;
   house: Float32Array;
   cloud: Float32Array;
+  smoke: Float32Array;
   drop: Float32Array;
 }
 
+/** Cheminée de la maison, en coordonnées du maillage : position sur le toit et sommet du conduit. */
+export const CHIMNEY = { x: 0.25, z: 0, top: 1.18 } as const;
+
 export function buildPropMeshes(): PropMeshes {
-  const { Sand, Clay, Trunk, DryGrass, Snow, Water } = Material;
+  const { Sand, Clay, Rock, Trunk, DryGrass, Snow, Water } = Material;
   const villager = (): MeshBuilder =>
     new MeshBuilder()
       .prism(0.07, 0, 0.22, 4, Trunk)
@@ -118,12 +122,18 @@ export function buildPropMeshes(): PropMeshes {
     villager: villager().build(),
     villagerWood: villager().at(-0.15, 0, 0).prism(0.07, 0.25, 0.7, 4, Trunk).build(),
     villagerGrain: villager().ellipsoid([-0.15, 0.4, 0], [0.11, 0.14, 0.11], 5, 3, DryGrass).build(),
-    house: new MeshBuilder().prism(0.5, 0, 0.5, 4, Clay).cone(0.68, 0.45, 1.05, 4, DryGrass).build(),
+    house: new MeshBuilder()
+      .prism(0.5, 0, 0.5, 4, Clay)
+      .cone(0.68, 0.45, 1.05, 4, DryGrass)
+      .at(CHIMNEY.x, 0, CHIMNEY.z)
+      .prism(0.09, 0.6, CHIMNEY.top, 4, Rock)
+      .build(),
     cloud: new MeshBuilder()
       .ellipsoid([0, 0, 0], [1, 0.38, 1], 7, 4, Snow)
       .ellipsoid([0.45, 0.22, 0.2], [0.55, 0.32, 0.55], 6, 3, Snow)
       .ellipsoid([-0.4, 0.15, -0.35], [0.5, 0.3, 0.5], 6, 3, Snow)
       .build(),
+    smoke: new MeshBuilder().ellipsoid([0, 0, 0], [1, 0.8, 1], 6, 3, Snow).build(),
     drop: new MeshBuilder().prism(0.05, 0, 0.5, 3, Water).build(),
   };
 }

@@ -9,7 +9,7 @@ import type { World } from '../sim/world';
 import { FAR, type CameraFrame } from './camera';
 import { ATTRIB, createPositionVAO, createProgram, createTexture, hexToRgb, type Program } from './gl';
 import { BUBBLE_H, BUBBLE_W, buildBubbleAtlas } from './icons';
-import { buildPropMeshes, buildTreeMeshes, CHIMNEY } from './meshes';
+import { buildPropMeshes, buildTreeMeshes, CHIMNEY, TREE_VARIANTS } from './meshes';
 import { SKY, rampUniformData } from './palette';
 import bubbleFrag from './shaders/bubble.frag?raw';
 import bubbleVert from './shaders/bubble.vert?raw';
@@ -62,13 +62,24 @@ const BUBBLE_MIN_PPU = 4;
 /** Durée du petit saut d'une bulle quand l'activité change (secondes). */
 const BUBBLE_HOP = 0.3;
 
-/** Un maillage dessiné en instanciation ; par instance : position (x, y, z), échelle, graine. */
+/**
+ * Un maillage dessiné en instanciation ; par instance : position (x, y, z), échelle, graine.
+ * `first` : rang de la première instance quand plusieurs maillages partagent un même tampon.
+ */
 interface InstanceBatch {
   vao: WebGLVertexArrayObject;
   instanceBuffer: WebGLBuffer;
   vertexCount: number;
   data: Float32Array;
   count: number;
+  first: number;
+  shared: boolean;
+}
+
+/** Tampon d'instances commun à plusieurs maillages, rangé maillage par maillage. */
+interface SharedInstances {
+  buffer: WebGLBuffer;
+  data: Float32Array;
 }
 
 /**
@@ -113,7 +124,10 @@ export class Renderer {
   private readonly hydroTex: WebGLTexture;
   private readonly stateBytes: Uint8Array;
   private readonly hydroBytes: Uint8Array;
+  /** Un maillage par espèce et variante (espèce × TREE_VARIANTS + variante), un seul tampon d'instances. */
   private readonly trees: InstanceBatch[];
+  private readonly treeInstances: SharedInstances;
+  private readonly treeOrder: Uint8Array;
   /** Habitants les mains vides, chargés de bois, chargés de grain (indexés par `Carry`). */
   private readonly villagers: InstanceBatch[];
   private readonly houses: InstanceBatch;
@@ -184,8 +198,16 @@ export class Renderer {
     this.stateBytes = new Uint8Array(world.cells * 4);
     this.hydroBytes = new Uint8Array(world.cells * 4);
 
-    this.trees = buildTreeMeshes().map((mesh) => this.createBatch(mesh, world.cells));
-    if (this.trees.length !== TREE_KINDS) throw new Error('Un maillage par espèce d’arbre est attendu');
+    const treeBuffer = gl.createBuffer();
+    if (!treeBuffer) throw new Error('Création du tampon d’arbres impossible');
+    gl.bindBuffer(gl.ARRAY_BUFFER, treeBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, world.cells * 20, gl.DYNAMIC_DRAW);
+    this.treeInstances = { buffer: treeBuffer, data: new Float32Array(world.cells * 5) };
+    this.trees = buildTreeMeshes().map((mesh) => this.createBatch(mesh, 0, this.treeInstances));
+    if (this.trees.length !== TREE_KINDS * TREE_VARIANTS) {
+      throw new Error('TREE_VARIANTS maillages par espèce d’arbre sont attendus');
+    }
+    this.treeOrder = new Uint8Array(world.cells);
     const props = buildPropMeshes();
     this.villagers = [props.villager, props.villagerWood, props.villagerGrain].map((mesh) =>
       this.createBatch(mesh, PEOPLE.maxVillagers),
@@ -318,7 +340,10 @@ export class Renderer {
     gl.uniform1f(t.uniform('u_tq'), p.animTime);
     gl.uniform1f(t.uniform('u_dither'), 0);
     this.uploadActors(cam.pixelsPerUnit, p);
-    for (const batch of [...this.trees, ...this.villagers, this.houses]) this.draw(batch);
+    gl.uniform1f(t.uniform('u_stretch'), 1);
+    for (const batch of this.trees) this.draw(batch);
+    gl.uniform1f(t.uniform('u_stretch'), 0);
+    for (const batch of [...this.villagers, this.houses]) this.draw(batch);
     // Pluie et nuages : sans écriture de profondeur, pour ne pas tracer de contours dans la trame.
     gl.depthMask(false);
     this.draw(this.drops);
@@ -369,15 +394,22 @@ export class Renderer {
 
   private draw(batch: InstanceBatch): void {
     if (!batch.count) return;
-    this.gl.bindVertexArray(batch.vao);
-    this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, batch.vertexCount, batch.count);
+    const gl = this.gl;
+    gl.bindVertexArray(batch.vao);
+    if (batch.shared) {
+      // WebGL2 n'a pas de « base instance » : on décale les attributs d'instance dans le tampon commun.
+      gl.bindBuffer(gl.ARRAY_BUFFER, batch.instanceBuffer);
+      gl.vertexAttribPointer(ATTRIB.inst, 4, gl.FLOAT, false, 20, batch.first * 20);
+      gl.vertexAttribPointer(ATTRIB.seed, 1, gl.FLOAT, false, 20, batch.first * 20 + 16);
+    }
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, batch.vertexCount, batch.count);
   }
 
-  private createBatch(mesh: Float32Array, capacity: number): InstanceBatch {
+  private createBatch(mesh: Float32Array, capacity: number, shared?: SharedInstances): InstanceBatch {
     const gl = this.gl;
     const vao = gl.createVertexArray();
     const meshBuffer = gl.createBuffer();
-    const instanceBuffer = gl.createBuffer();
+    const instanceBuffer = shared ? shared.buffer : gl.createBuffer();
     if (!vao || !meshBuffer || !instanceBuffer) throw new Error('Création des tampons d’arbres impossible');
     gl.bindVertexArray(vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffer);
@@ -387,7 +419,7 @@ export class Renderer {
     gl.enableVertexAttribArray(ATTRIB.mat);
     gl.vertexAttribPointer(ATTRIB.mat, 1, gl.FLOAT, false, 16, 12);
     gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, capacity * 20, gl.DYNAMIC_DRAW);
+    if (!shared) gl.bufferData(gl.ARRAY_BUFFER, capacity * 20, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(ATTRIB.inst);
     gl.vertexAttribPointer(ATTRIB.inst, 4, gl.FLOAT, false, 20, 0);
     gl.vertexAttribDivisor(ATTRIB.inst, 1);
@@ -399,8 +431,10 @@ export class Renderer {
       vao,
       instanceBuffer,
       vertexCount: mesh.length / 4,
-      data: new Float32Array(capacity * 5),
+      data: shared ? shared.data : new Float32Array(capacity * 5),
       count: 0,
+      first: 0,
+      shared: !!shared,
     };
   }
 
@@ -496,29 +530,46 @@ export class Renderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.n, this.n, gl.RGBA, gl.UNSIGNED_BYTE, h);
   }
 
+  /** Tri par comptage des arbres par maillage, puis un seul envoi du tampon commun. */
   private uploadTrees(): void {
     const w = this.world;
     const n = w.n;
+    const order = this.treeOrder;
     for (const t of this.trees) t.count = 0;
+    for (let i = 0; i < w.cells; i++) {
+      if (w.tree[i] <= 0) continue;
+      const k =
+        w.treeKind[i] * TREE_VARIANTS + Math.floor(hash2(i % n, Math.floor(i / n), 17) * TREE_VARIANTS);
+      order[i] = k;
+      this.trees[k].count++;
+    }
+    let first = 0;
+    for (const t of this.trees) {
+      t.first = first;
+      first += t.count;
+      t.count = 0;
+    }
+    const data = this.treeInstances.data;
     for (let i = 0; i < w.cells; i++) {
       const g = w.tree[i];
       if (g <= 0) continue;
-      const batch = this.trees[w.treeKind[i]];
-      if (!batch) continue;
+      const batch = this.trees[order[i]];
       const x = i % n;
       const z = Math.floor(i / n);
       const jx = x + (hash2(x, z, 3) - 0.5) * 0.5;
       const jz = z + (hash2(x, z, 5) - 0.5) * 0.5;
-      this.push(
-        batch,
-        jx,
-        w.heightAt(jx, jz) - 0.08,
-        jz,
-        (0.3 + 0.7 * g) * (1.05 + 0.35 * hash2(x, z, 9)),
-        hash2(x, z, 11),
-      );
+      const o = (batch.first + batch.count) * 5;
+      data[o] = jx;
+      data[o + 1] = w.heightAt(jx, jz) - 0.08;
+      data[o + 2] = jz;
+      data[o + 3] = (0.3 + 0.7 * g) * (1.05 + 0.35 * hash2(x, z, 9));
+      data[o + 4] = hash2(x, z, 11);
+      batch.count++;
     }
-    for (const t of this.trees) this.upload(t);
+    if (!first) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.treeInstances.buffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, data.subarray(0, first * 5));
   }
 
   private upload(batch: InstanceBatch): void {

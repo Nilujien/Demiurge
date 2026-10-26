@@ -1,3 +1,4 @@
+import { Rng } from '../core/rng';
 import { Material } from './palette';
 
 type P3 = [number, number, number];
@@ -74,26 +75,88 @@ class MeshBuilder {
   }
 }
 
-/** Arbres à l'échelle 1 (une cellule), base en y = 0. Indexés par TreeKind. */
+/** Silhouettes générées par espèce : chaque arbre en reçoit une selon sa case. */
+export const TREE_VARIANTS = 4;
+/** Graine des silhouettes : fixe, pour qu'un monde garde le même aspect d'une session à l'autre. */
+const TREE_SHAPE_SEED = 0x7ee5;
+
+type Range = (lo: number, hi: number) => number;
+
+/** Feuillu : tronc, houppier principal et 1 à 3 masses secondaires autour du sommet. */
+function broadleaf(r: Range): Float32Array {
+  const { Trunk, Broadleaf } = Material;
+  const top = r(0.6, 0.85);
+  const crown = r(0.5, 0.64);
+  const cy = top + crown * 0.55;
+  const b = new MeshBuilder()
+    .prism(r(0.09, 0.12), 0, top, 5, Trunk)
+    .ellipsoid([0, cy, 0], [crown, crown * r(0.8, 0.95), crown], 6, 4, Broadleaf);
+  const extra = Math.floor(r(1, 4));
+  for (let k = 0; k < extra; k++) {
+    const a = r(0, TAU);
+    const d = crown * r(0.3, 0.55);
+    const rad = crown * r(0.5, 0.68);
+    b.ellipsoid(
+      [Math.cos(a) * d, cy + crown * r(0.2, 0.75), Math.sin(a) * d],
+      [rad, rad * 0.9, rad],
+      5,
+      3,
+      Broadleaf,
+    );
+  }
+  return b.build();
+}
+
+/** Conifère : tronc court et 2 à 4 étages de cônes qui se rétrécissent jusqu'à la pointe. */
+function conifer(r: Range): Float32Array {
+  const { Trunk, Conifer } = Material;
+  const height = r(1.9, 2.6);
+  const base = r(0.52, 0.68);
+  const tiers = Math.floor(r(2, 5));
+  const y0 = 0.3;
+  const step = (height - y0) / (tiers + 0.8);
+  const b = new MeshBuilder().prism(0.09, 0, 0.45, 5, Trunk);
+  for (let t = 0; t < tiers; t++) {
+    const f = tiers > 1 ? t / (tiers - 1) : 0;
+    const bottom = y0 + t * step;
+    b.cone(base * (1 - 0.5 * f), bottom, t === tiers - 1 ? height : bottom + step * 1.8, 6, Conifer);
+  }
+  return b.build();
+}
+
+/** Buisson : une masse basse et 1 à 3 touffes autour. */
+function bush(r: Range): Float32Array {
+  const { Broadleaf } = Material;
+  const main = r(0.38, 0.48);
+  const b = new MeshBuilder().ellipsoid([0, main * 0.72, 0], [main, main * 0.7, main], 6, 3, Broadleaf);
+  const extra = Math.floor(r(1, 4));
+  for (let k = 0; k < extra; k++) {
+    const a = r(0, TAU);
+    const d = r(0.18, 0.3);
+    const rad = r(0.2, 0.3);
+    b.ellipsoid(
+      [Math.cos(a) * d, rad * 0.85 * r(1, 1.4), Math.sin(a) * d],
+      [rad, rad * 0.85, rad],
+      5,
+      3,
+      Broadleaf,
+    );
+  }
+  return b.build();
+}
+
+/**
+ * Arbres à l'échelle 1 (une cellule), base en y = 0. Index : espèce × TREE_VARIANTS + variante,
+ * espèces dans l'ordre de TreeKind. Générés une fois au démarrage, de façon déterministe.
+ */
 export function buildTreeMeshes(): Float32Array[] {
-  const { Trunk, Broadleaf, Conifer } = Material;
-  return [
-    new MeshBuilder()
-      .prism(0.11, 0, 0.75, 5, Trunk)
-      .ellipsoid([0, 1.05, 0], [0.62, 0.55, 0.62], 6, 4, Broadleaf)
-      .ellipsoid([0.22, 1.45, 0.1], [0.38, 0.34, 0.38], 5, 3, Broadleaf)
-      .build(),
-    new MeshBuilder()
-      .prism(0.09, 0, 0.45, 5, Trunk)
-      .cone(0.62, 0.3, 1.25, 6, Conifer)
-      .cone(0.47, 0.85, 1.85, 6, Conifer)
-      .cone(0.3, 1.4, 2.35, 6, Conifer)
-      .build(),
-    new MeshBuilder()
-      .ellipsoid([0, 0.28, 0], [0.45, 0.32, 0.45], 6, 3, Broadleaf)
-      .ellipsoid([0.25, 0.35, 0.15], [0.28, 0.25, 0.28], 5, 3, Broadleaf)
-      .build(),
-  ];
+  const rng = new Rng(TREE_SHAPE_SEED);
+  const r: Range = (lo, hi) => lo + (hi - lo) * rng.next();
+  const out: Float32Array[] = [];
+  for (const gen of [broadleaf, conifer, bush]) {
+    for (let v = 0; v < TREE_VARIANTS; v++) out.push(gen(r));
+  }
+  return out;
 }
 
 /** Accessoires instanciés comme les arbres : base en y = 0, face vers +x. */

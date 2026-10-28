@@ -1,3 +1,4 @@
+import { normalizeSeed } from '../core/seed';
 import { SOILS, type SoilId } from '../sim/soils';
 import type { WorldStats } from '../sim/simulation';
 import { Overlay, type OverlayId } from '../render/renderer';
@@ -12,6 +13,26 @@ export interface HudState {
   paused: boolean;
   /** Bulles d'activité au-dessus des habitants. */
   bubbles: boolean;
+  /** Multiplicateur de la vitesse de simulation. */
+  speed: Speed;
+}
+
+export const SPEEDS = [1, 2, 4] as const;
+export type Speed = (typeof SPEEDS)[number];
+
+/** Ce que l'infobulle dit d'un village survolé. */
+export interface VillageInfo {
+  id: number;
+  population: number;
+  capacity: number;
+  houses: number;
+  /** Maisons en chantier. */
+  building: number;
+  fields: number;
+  wood: number;
+  grain: number;
+  /** Le grain ne suffira pas à nourrir tout le monde à la fin de l'année. */
+  hungry: boolean;
 }
 
 export interface HudActions {
@@ -20,6 +41,11 @@ export interface HudActions {
   regenerate(): void;
   seaLevel(level: number): void;
   pixelSize(px: number): void;
+  /** Génère le monde d'une graine saisie. */
+  seed(seed: number): void;
+  undo(): void;
+  redo(): void;
+  share(): Promise<boolean>;
 }
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -48,7 +74,10 @@ export class Hud {
     seaLevel: 0,
     paused: false,
     bubbles: true,
+    speed: 1,
   };
+  private seedValue = 0;
+  private villageKey = '';
 
   constructor(private readonly actions: HudActions) {
     const grid = $('toolgrid');
@@ -95,10 +124,32 @@ export class Hud {
     $('pause').addEventListener('click', () => this.togglePause());
     $('bubbles').addEventListener('click', () => this.toggleBubbles());
     $('regen').addEventListener('click', () => actions.regenerate());
+    document
+      .querySelectorAll<HTMLButtonElement>('#speeds [data-speed]')
+      .forEach((b) => b.addEventListener('click', () => this.setSpeed(Number(b.dataset['speed']) as Speed)));
+    $('undo').addEventListener('click', () => actions.undo());
+    $('redo').addEventListener('click', () => actions.redo());
+    const seed = $<HTMLInputElement>('seed');
+    seed.addEventListener('change', () => {
+      const v = normalizeSeed(seed.value);
+      if (v === null || v === this.seedValue) seed.value = String(this.seedValue);
+      else actions.seed(v);
+    });
+    seed.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') seed.blur();
+    });
+    const share = $('share');
+    share.addEventListener('click', () => {
+      void actions.share().then((ok) => {
+        share.textContent = ok ? 'Copié !' : 'Échec';
+        setTimeout(() => (share.textContent = 'Lien'), 1500);
+      });
+    });
 
     this.setTool(this.state.tool);
     this.setSoil(this.state.soil);
     this.setOverlay(this.state.overlay);
+    this.setSpeed(this.state.speed);
   }
 
   /** Raccourcis clavier ; retourne true si la touche a été consommée. */
@@ -126,6 +177,9 @@ export class Hud {
         return true;
       case 'p':
         this.togglePause();
+        return true;
+      case 'v':
+        this.setSpeed(SPEEDS[(SPEEDS.indexOf(this.state.speed) + 1) % SPEEDS.length]);
         return true;
       case 'h':
         this.setOverlay(((this.state.overlay + 1) % 3) as OverlayId);
@@ -178,6 +232,56 @@ export class Hud {
     const b = $('pause');
     b.setAttribute('aria-pressed', String(this.state.paused));
     b.textContent = this.state.paused ? 'Reprendre' : 'Pause';
+  }
+
+  setSpeed(v: Speed): void {
+    this.state.speed = v;
+    document
+      .querySelectorAll<HTMLButtonElement>('#speeds [data-speed]')
+      .forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset['speed']) === v)));
+  }
+
+  setHistory(canUndo: boolean, canRedo: boolean): void {
+    $<HTMLButtonElement>('undo').disabled = !canUndo;
+    $<HTMLButtonElement>('redo').disabled = !canRedo;
+  }
+
+  /** Affiche la graine du monde courant, sauf pendant que le joueur la modifie. */
+  setSeed(seed: number): void {
+    this.seedValue = seed;
+    const el = $<HTMLInputElement>('seed');
+    if (document.activeElement !== el) el.value = String(seed);
+  }
+
+  /** Infobulle d'un village survolé, près du pointeur (pixels CSS) ; null la masque. */
+  showVillage(v: VillageInfo | null, x: number, y: number): void {
+    const el = $('village');
+    if (!v) {
+      el.hidden = true;
+      this.villageKey = '';
+      return;
+    }
+    const fmt = (k: number): string => Math.floor(k).toLocaleString('fr-FR');
+    const key = JSON.stringify(v);
+    if (key !== this.villageKey) {
+      this.villageKey = key;
+      const houses = v.building ? `${v.houses} (+${v.building} en chantier)` : String(v.houses);
+      el.innerHTML =
+        `<b>${v.population < 8 ? 'Hameau' : 'Village'} n° ${v.id}</b>` +
+        `<span><i>Habitants</i>${v.population} / ${v.capacity}</span>` +
+        `<span><i>Maisons</i>${houses}</span>` +
+        `<span><i>Champs</i>${v.fields}</span>` +
+        `<span><i>Bois</i>${fmt(v.wood)}</span>` +
+        `<span${v.hungry ? ' class="warn"' : ''}><i>Grain</i>${fmt(v.grain)}${v.hungry ? ' · disette' : ''}</span>`;
+    }
+    el.hidden = false;
+    // À droite et sous le pointeur, ramenée dans la fenêtre.
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const left = Math.min(x + 16, window.innerWidth - w - 8);
+    const top = Math.min(y + 16, window.innerHeight - h - 8);
+    el.style.left = `${Math.max(8, left)}px`;
+    el.style.top = `${Math.max(8, top)}px`;
   }
 
   showStats(s: WorldStats, time: string, fps: number): void {

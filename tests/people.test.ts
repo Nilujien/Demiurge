@@ -22,6 +22,17 @@ describe('People', () => {
     for (const t of people.tribes) expect(world.height[t.home]).toBeGreaterThan(world.seaLevel);
   });
 
+  it('retrouve le village le plus proche d’un point', () => {
+    const w = plain(80);
+    const people = new People(w, 1);
+    const a = people.settle(15, 15)!.tribe;
+    const b = people.settle(60, 60)!.tribe;
+    expect(a).not.toBe(b);
+    expect(people.tribeNear(16, 14, 3)).toBe(a);
+    expect(people.tribeNear(59, 61, 3)).toBe(b);
+    expect(people.tribeNear(38, 38, 3)).toBeNull();
+  });
+
   it('abat les arbres proches pour rapporter du bois au village', () => {
     const w = plain();
     const people = new People(w, 1);

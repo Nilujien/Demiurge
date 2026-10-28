@@ -18,7 +18,7 @@
     <aside class="panel tools" aria-label="Outils du démiurge">
       <div class="brand">
         <h1>DEMIURGE</h1>
-        <span class="tag">v0.2</span>
+        <span class="tag">v0.3</span>
       </div>
 
       <div class="section">
@@ -75,8 +75,30 @@
         </button>
       </div>
 
-      <div class="row">
-        <button class="btn" id="pause" aria-pressed="false">Pause</button>
+      <div class="section">
+        <div class="label">Temps <span>P V</span></div>
+        <div class="row" id="speeds">
+          <button class="btn" id="pause" aria-pressed="false" title="Pause (P)">Pause</button>
+          <button class="btn" data-speed="1" title="Vitesse normale (V)">×1</button>
+          <button class="btn" data-speed="2" title="Vitesse double (V)">×2</button>
+          <button class="btn" data-speed="4" title="Vitesse quadruple (V)">×4</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label">Historique <span>Ctrl Z</span></div>
+        <div class="row">
+          <button class="btn" id="undo" title="Annuler (Ctrl+Z)" disabled>↶ Annuler</button>
+          <button class="btn" id="redo" title="Rétablir (Ctrl+Maj+Z ou Ctrl+Y)" disabled>Rétablir ↷</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <label class="label" for="seed">Graine du monde</label>
+        <div class="row">
+          <input type="text" id="seed" inputmode="numeric" autocomplete="off" spellcheck="false" />
+          <button class="btn" id="share" title="Copier le lien de ce monde">Lien</button>
+        </div>
         <button class="btn" id="regen">Nouveau monde</button>
       </div>
     </aside>
@@ -100,7 +122,11 @@
       <span><kbd>B</kbd> bulles</span>
       <span><kbd>[</kbd> <kbd>]</kbd> pinceau</span>
       <span><kbd>P</kbd> pause</span>
+      <span><kbd>V</kbd> vitesse</span>
+      <span><kbd>Ctrl</kbd> <kbd>Z</kbd> annuler</span>
     </div>
+
+    <div class="panel village" id="village" role="tooltip" hidden></div>
 
     <div id="nogl" hidden>
       <p>

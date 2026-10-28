@@ -1,7 +1,7 @@
 {
   "name": "demiurge",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Jeu web bac à sable : sculpter un monde en relief, changer les sols, fertiliser et faire pousser des forêts. Rendu 3D isométrique pixel art en WebGL2.",
   "type": "module",
   "engines": {

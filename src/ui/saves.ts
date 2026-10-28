@@ -84,7 +84,8 @@ export class Saves {
     }, 'Import impossible');
   }
 
-  private autosave(): void {
+  /** Écrit l'emplacement automatique ; sans effet pendant la genèse. */
+  autosave(): void {
     if (this.sim.inGenesis) return;
     this.run(async () => {
       await this.write('auto');

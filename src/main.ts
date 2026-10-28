@@ -19,6 +19,8 @@ const FLOW_MIN_INTERVAL_MS = 250;
 const MAX_TICKS_PER_FRAME = 3;
 /** Temps de préhistoire simulé par image pendant la genèse : le monde se forme sous les yeux. */
 const GENESIS_BUDGET_MS = 12;
+/** Délai au-delà duquel une restauration du contexte WebGL qui n'arrive pas est jugée perdue. */
+const GPU_RESTORE_WAIT_MS = 5000;
 /** Distance (cellules) entre le pointeur et un foyer ou une maison pour afficher l'infobulle du village. */
 const VILLAGE_HOVER_RADIUS = 3;
 
@@ -68,7 +70,10 @@ function boot(): void {
     regenerate: () => startWorld(randomSeed()),
     seed: (s) => startWorld(s),
     seaLevel: (level) => sim.setSeaLevel(level),
-    pixelSize: (px) => renderer.setPixelSize(px),
+    pixelSize: (px) => {
+      pixelSize = px;
+      if (!gpuLost) renderer.setPixelSize(px);
+    },
     undo,
     redo,
     share: async () => {
@@ -115,7 +120,50 @@ function boot(): void {
     save: () => saves.save(),
   });
   saves.start(urlSeed);
-  window.addEventListener('resize', () => renderer.resize());
+  window.addEventListener('resize', () => {
+    if (!gpuLost) renderer.resize();
+  });
+
+  // Perte du contexte WebGL (veille, pilote réinitialisé, onglet trop gourmand) : la simulation continue,
+  // la partie est sauvegardée, et toutes les ressources GPU sont recréées quand le navigateur rend le contexte.
+  let pixelSize = 3;
+  let gpuLost = false;
+  let gpuTimer = 0;
+  const gpuOverlay = document.getElementById('gpulost');
+  const gpuMsg = document.getElementById('gpulostMsg');
+  const reload = document.getElementById('reload');
+  reload?.addEventListener('click', () => location.reload());
+  const showGpuLost = (text: string, offerReload: boolean): void => {
+    if (gpuMsg) gpuMsg.textContent = text;
+    if (reload) reload.hidden = !offerReload;
+    if (gpuOverlay) gpuOverlay.hidden = false;
+  };
+  const giveUp = (): void =>
+    showGpuLost(
+      "L'affichage n'a pas pu être restauré. Ta partie est sauvegardée : recharge la page pour la reprendre.",
+      true,
+    );
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault(); // sans cela, le navigateur ne rendrait jamais le contexte
+    gpuLost = true;
+    saves.autosave();
+    showGpuLost("L'affichage a été interrompu par le système. Restauration en cours…", false);
+    clearTimeout(gpuTimer);
+    gpuTimer = window.setTimeout(giveUp, GPU_RESTORE_WAIT_MS);
+  });
+  canvas.addEventListener('webglcontextrestored', () => {
+    clearTimeout(gpuTimer);
+    try {
+      renderer = new Renderer(canvas, sim, pixelSize);
+    } catch (err) {
+      console.error(err);
+      giveUp();
+      return;
+    }
+    sim.markAll();
+    gpuLost = false;
+    if (gpuOverlay) gpuOverlay.hidden = true;
+  });
 
   let last = performance.now();
   let simAccum = 0;
@@ -206,16 +254,18 @@ function boot(): void {
       lastFlow = now;
     }
 
-    renderer.sync(sim);
-    const color = ui.tool === 'soil' ? soilDef(ui.soil).swatch : toolDef(ui.tool).color;
-    renderer.render(cam, {
-      animTime: Math.floor((now / 1000) * ANIM_FPS) / ANIM_FPS,
-      time: now / 1000,
-      simAlpha: Math.min(1, simAccum * SIM_HZ),
-      brush: hit ? { x: hit[0], z: hit[2], radius: ui.brush, color } : null,
-      overlay: ui.overlay,
-      bubbles: ui.bubbles,
-    });
+    if (!gpuLost) {
+      renderer.sync(sim);
+      const color = ui.tool === 'soil' ? soilDef(ui.soil).swatch : toolDef(ui.tool).color;
+      renderer.render(cam, {
+        animTime: Math.floor((now / 1000) * ANIM_FPS) / ANIM_FPS,
+        time: now / 1000,
+        simAlpha: Math.min(1, simAccum * SIM_HZ),
+        brush: hit ? { x: hit[0], z: hit[2], radius: ui.brush, color } : null,
+        overlay: ui.overlay,
+        bubbles: ui.bubbles,
+      });
+    }
 
     frames++;
     statAccum += dt;

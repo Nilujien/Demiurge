@@ -259,7 +259,8 @@ export class Simulation {
     return { trees, population: this.people.population, fields, cover: land ? covered / land : 0 };
   }
 
-  private markAll(): void {
+  /** Tout est à renvoyer au GPU, par exemple après la restauration du contexte WebGL. */
+  markAll(): void {
     this.dirty.heights = true;
     this.dirty.state = true;
     this.dirty.trees = true;

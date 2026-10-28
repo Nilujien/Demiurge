@@ -87,6 +87,8 @@ Deux textures n×n portent l'état par cellule :
 
 Le canal champ vaut 0 hors champ, 1 pour une terre labourée, puis croît avec les céréales jusqu'à 255 (mûres). `world.frag` y dessine la terre retournée en sillons et une bordure d'herbe sèche le long des côtés qui ne touchent pas un autre champ. De près (au moins 2,5 pixels par unité), le renderer plante sur les billons 3 rangées de 3 touffes de céréales instanciées (`buildCropMeshes`) : vertes, jaunissantes puis dorées avec épis, grandissant avec la récolte et ondulant sous une vague de vent qui traverse le champ (`u_wave`). De loin, une touffe ferait moins d'un pixel : le sol colore lui-même les rangées.
 
+**Perte de contexte** : quand le système retire le contexte WebGL (veille, pilote réinitialisé, mémoire graphique réclamée), `main.ts` annule le comportement par défaut de `webglcontextlost` (sans quoi le navigateur ne rendrait jamais le contexte), suspend le rendu, sauvegarde la partie et affiche un voile. La simulation, elle, continue sur le CPU. À `webglcontextrestored`, un nouveau `Renderer` sur le même canevas recrée programmes, tampons et textures, et `Simulation.markAll` fait tout renvoyer au GPU ; la taille de pixel choisie entre-temps est conservée. Si la restauration n'arrive pas en 5 secondes, le voile propose de recharger la page.
+
 **Passe finale** : agrandissement au plus proche voisin, contour sombre là où la profondeur saute, ciel en dégradé tramé.
 
 **Look pixel art** : palette de 12 rampes × 4 teintes (`palette.ts`, contrat d'indices avec les shaders), éclairage quantifié en 4 niveaux avec tramage Bayer 4×4, animations cadencées à `ANIM_FPS`.
@@ -97,5 +99,4 @@ Les shaders sont des fichiers `.glsl` importés en texte (`?raw`). Le renderer p
 
 - La simulation tourne sur le CPU. À 256×256, un pas coûte environ 5 ms et le réseau d'écoulement autant ; la préhistoire (480 pas) est étalée sur plusieurs images (`Simulation.advanceGenesis`, 12 ms par image) pour que le monde se forme sous les yeux sans bloquer la page. Au-delà, il faudra passer la simulation dans un Web Worker, puis éventuellement porter diffusion et croissance en shaders ping-pong.
 - `World.heightAt` (CPU) et `hBil` (GPU) doivent rester cohérents ; le second lit une altitude quantifiée sur 8 bits.
-- Les ressources WebGL ne sont pas restaurées après une perte de contexte (`webglcontextlost`).
 - Les sauvegardes dépendent de la taille de la grille : une partie n'est rechargée que dans une grille de même côté.

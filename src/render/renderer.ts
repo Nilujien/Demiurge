@@ -156,9 +156,14 @@ export class Renderer {
   private depthTex: WebGLTexture | null = null;
   private readonly emptyVAO: WebGLVertexArrayObject;
 
+  /**
+   * Crée toutes les ressources GPU. Après une perte du contexte WebGL, un nouveau `Renderer` sur le
+   * même canevas les recrée dans le contexte restauré.
+   */
   constructor(
     private readonly canvas: HTMLCanvasElement,
     sim: Simulation,
+    pixelSize = 3,
   ) {
     const world = sim.world;
     const gl = canvas.getContext('webgl2', {
@@ -172,6 +177,7 @@ export class Renderer {
     this.sim = sim;
     this.world = world;
     this.n = world.n;
+    this.pixelSize = pixelSize;
     const n = this.n;
 
     this.progWorld = createProgram(gl, vertex(worldVert), fragment(worldFrag), 'world');

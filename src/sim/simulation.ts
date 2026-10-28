@@ -3,8 +3,8 @@ import { Rng } from '../core/rng';
 import { Ecology } from './ecology';
 import { generateTerrain, pioneerCells } from './generate';
 import { Hydrology } from './hydrology';
-import { People } from './people';
-import { Weather } from './weather';
+import { People, type PeopleSave } from './people';
+import { Weather, type WeatherSave } from './weather';
 import { World } from './world';
 
 /** Villages fondés à la génération d'un monde : un pour tant de cellules (au moins 2), et habitants de chacun. */
@@ -12,6 +12,37 @@ const CELLS_PER_INITIAL_TRIBE = 16384;
 const INITIAL_VILLAGERS = 5;
 /** La préhistoire recalcule le réseau d'écoulement tous les tant de pas. */
 const PREHISTORY_FLOW_EVERY = 40;
+
+/** Grandeurs par cellule de `World` conservées dans une sauvegarde. */
+export const WORLD_LAYERS = [
+  'height',
+  'soil',
+  'fertility',
+  'grass',
+  'tree',
+  'treeKind',
+  'moisture',
+  'flowDir',
+  'flowAcc',
+  'stream',
+  'field',
+  'crop',
+  'building',
+] as const;
+export type WorldLayer = (typeof WORLD_LAYERS)[number];
+export type LayerArray = World[WorldLayer];
+
+/** État complet d'une simulation hors genèse : la reprendre redonne exactement la même suite. */
+export interface SimulationSave {
+  n: number;
+  ticks: number;
+  rng: number;
+  flowDirty: boolean;
+  seaLevel: number;
+  layers: { [K in WorldLayer]: World[K] };
+  weather: WeatherSave;
+  people: PeopleSave;
+}
 
 /** Ce qui a changé depuis le dernier rendu ; le moteur de rendu remet les drapeaux à false. */
 export interface Dirty {
@@ -173,6 +204,42 @@ export class Simulation {
   /** Fait apparaître un habitant en (x, z) ; retourne false si le lieu est inhabitable. */
   settle(x: number, z: number): boolean {
     return this.people.settle(x, z) !== null;
+  }
+
+  /** Copie de l'état ; impossible pendant la genèse, dont l'avancement n'est pas sauvegardé. */
+  save(): SimulationSave {
+    if (this.inGenesis) throw new Error('Le monde est encore en genèse');
+    const w = this.world;
+    const layers = Object.fromEntries(WORLD_LAYERS.map((l) => [l, w[l].slice()])) as SimulationSave['layers'];
+    return {
+      n: w.n,
+      ticks: this.ticks,
+      rng: this.rng.save(),
+      flowDirty: this.flowDirty,
+      seaLevel: w.seaLevel,
+      layers,
+      weather: this.weather.save(),
+      people: this.people.save(),
+    };
+  }
+
+  /** Reprend un état sauvegardé, genèse en cours comprise. La grille doit avoir la même taille. */
+  load(s: SimulationSave): void {
+    const w = this.world;
+    if (s.n !== w.n) throw new Error(`Grille de ${s.n}×${s.n} cellules, attendu ${w.n}×${w.n}`);
+    for (const l of WORLD_LAYERS) {
+      if (s.layers[l].length !== w.cells) throw new Error(`Sauvegarde : calque ${l} de taille invalide`);
+    }
+    this.people.load(s.people);
+    this.weather.load(s.weather);
+    for (const l of WORLD_LAYERS) w[l].set(s.layers[l]);
+    w.seaLevel = s.seaLevel;
+    this.rng.restore(s.rng);
+    this.ticks = s.ticks;
+    this.genesisLeft = 0;
+    this.genesisDone = 0;
+    this.flowDirty = s.flowDirty;
+    this.markAll();
   }
 
   stats(): WorldStats {

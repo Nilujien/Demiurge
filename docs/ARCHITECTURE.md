@@ -48,6 +48,19 @@ Les paramètres sont regroupés en tête de module (`HYDRO`, `ECO`, `RAIN`, `PEO
 
 La graine du monde vit dans le fragment d'URL (`#seed=…`, `core/seed.ts`) : le déterminisme de la simulation suffit à redonner la même île à partir d'un lien.
 
+## Sauvegardes
+
+`Simulation.save` copie tout l'état hors genèse : les calques de `World` (`WORLD_LAYERS`), le niveau de la mer, les compteurs, l'état des générateurs aléatoires (`Rng.save`), les nuages, les villages et leurs habitants (chaque habitant désigne son village par son rang). `Simulation.load` le reprend : la suite de la simulation est alors identique au pas près, ce que vérifie un test d'aller-retour.
+
+Le format (`sim/save.ts`) tient en un fichier compressé en gzip (`CompressionStream`, sans dépendance) : l'en-tête « DMRG » et sa version, un JSON pour les objets, puis les calques bruts alignés sur 4 octets. À 256×256, une partie pèse environ 750 Ko. Un fichier étranger, tronqué ou d'une autre version lève une `SaveError`, et un chargement raté rétablit le monde courant.
+
+Côté navigateur (`ui/storage.ts`, `ui/saves.ts`), IndexedDB garde deux emplacements :
+
+- `auto` : écrit chaque minute et quand l'onglet passe en arrière-plan ; au démarrage, la partie reprend, sauf si l'URL désigne une autre graine (lien partagé) ;
+- `quick` : écrit par Ctrl+S ou « Sauvegarder », relu par « Charger ».
+
+« Exporter » et « Importer » passent par un fichier `.demiurge`. Les opérations sont faites l'une après l'autre.
+
 ## Rendu (`src/render`)
 
 **Caméra** : orthographique, élévation 30° (losanges 2:1), rotation par quarts de tour animée, zoom par paliers en pixels par unité. La cible est accrochée à la grille des pixels basse résolution, ce qui supprime le grouillement en déplacement.
@@ -85,4 +98,4 @@ Les shaders sont des fichiers `.glsl` importés en texte (`?raw`). Le renderer p
 - La simulation tourne sur le CPU. À 256×256, un pas coûte environ 5 ms et le réseau d'écoulement autant ; la préhistoire (480 pas) est étalée sur plusieurs images (`Simulation.advanceGenesis`, 12 ms par image) pour que le monde se forme sous les yeux sans bloquer la page. Au-delà, il faudra passer la simulation dans un Web Worker, puis éventuellement porter diffusion et croissance en shaders ping-pong.
 - `World.heightAt` (CPU) et `hBil` (GPU) doivent rester cohérents ; le second lit une altitude quantifiée sur 8 bits.
 - Les ressources WebGL ne sont pas restaurées après une perte de contexte (`webglcontextlost`).
-- Aucune sauvegarde pour l'instant (voir la feuille de route).
+- Les sauvegardes dépendent de la taille de la grille : une partie n'est rechargée que dans une grille de même côté.

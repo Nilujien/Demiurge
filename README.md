@@ -41,9 +41,12 @@ La CI GitHub (`.github/workflows/ci.yml`) exécute les mêmes vérifications et 
 | Pause                       | `P`                                         | bouton                 |
 | Vitesse ×1 / ×2 / ×4        | `V`                                         | boutons                |
 | Annuler / rétablir          | `Ctrl+Z` / `Ctrl+Maj+Z` ou `Ctrl+Y`         | boutons                |
+| Sauvegarde rapide           | `Ctrl+S`                                    | bouton                 |
 | Infos d'un village          | survoler son foyer ou ses maisons           | —                      |
 
 Chaque monde a une graine, affichée dans le panneau et inscrite dans l'URL (`#seed=1789`) : le bouton « Lien » copie l'adresse pour partager l'île, et saisir une graine régénère le monde correspondant.
+
+La partie est sauvegardée automatiquement dans le navigateur chaque minute et reprend à la visite suivante. « Sauvegarder » et « Charger » gèrent une sauvegarde rapide, « Exporter » et « Importer » un fichier `.demiurge`.
 
 ## Organisation
 

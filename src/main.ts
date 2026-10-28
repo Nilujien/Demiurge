@@ -12,6 +12,7 @@ import { PEOPLE } from './sim/people';
 import { StrokeHistory } from './tools/history';
 import { applyTool, toolDef } from './tools/tools';
 import { Hud } from './ui/hud';
+import { Saves } from './ui/saves';
 
 const INITIAL_SEED = 1789;
 const FLOW_MIN_INTERVAL_MS = 250;
@@ -25,7 +26,8 @@ function boot(): void {
   const canvas = document.getElementById('view');
   if (!(canvas instanceof HTMLCanvasElement)) throw new Error('#view doit être un <canvas>');
 
-  let seed = parseSeed(location.hash) ?? INITIAL_SEED;
+  const urlSeed = parseSeed(location.hash);
+  let seed = urlSeed ?? INITIAL_SEED;
   const sim = new Simulation(seed, undefined, true);
   let renderer: Renderer;
   try {
@@ -77,6 +79,21 @@ function boot(): void {
         return false;
       }
     },
+    save: () => saves.save(),
+    load: () => saves.load(),
+    exportFile: () => saves.exportFile(),
+    importFile: (bytes) => saves.importFile(bytes),
+  });
+  const saves = new Saves(sim, hud, {
+    seed: () => seed,
+    loaded: (meta) => {
+      seed = meta.seed;
+      strokes.clear();
+      refreshHistory();
+      hud.setSeed(seed);
+      hud.setSeaLevel(sim.world.seaLevel);
+      history.replaceState(null, '', seedHash(seed));
+    },
   });
   hud.setSeed(seed);
   history.replaceState(null, '', seedHash(seed));
@@ -95,7 +112,9 @@ function boot(): void {
     key: (k) => hud.handleKey(k),
     undo,
     redo,
+    save: () => saves.save(),
   });
+  saves.start(urlSeed);
   window.addEventListener('resize', () => renderer.resize());
 
   let last = performance.now();

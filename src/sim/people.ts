@@ -126,6 +126,20 @@ export interface Tribe {
   population: number;
 }
 
+/** Habitant sauvegardé : son village est désigné par son rang dans `PeopleSave.tribes`. */
+export type VillagerSave = Omit<Villager, 'tribe'> & { tribe: number };
+export type TribeSave = Omit<Tribe, 'houses'> & { houses: House[] };
+
+export interface PeopleSave {
+  rng: number;
+  nextId: number;
+  ticks: number;
+  tribes: TribeSave[];
+  villagers: VillagerSave[];
+  /** Cellules réservées par un habitant. */
+  reserved: number[];
+}
+
 /**
  * Populations : des villages dont les habitants parcourent l'île, abattent des arbres pour le bois,
  * aplanissent et labourent des parcelles, sèment et récoltent des céréales, bâtissent des maisons.
@@ -156,6 +170,42 @@ export class People {
     this.reserved.fill(0);
     this.rng = new Rng(seed ^ 0x5eed1e);
     this.ticks = 0;
+  }
+
+  save(): PeopleSave {
+    const reserved: number[] = [];
+    this.reserved.forEach((r, i) => r && reserved.push(i));
+    return {
+      rng: this.rng.save(),
+      nextId: this.nextId,
+      ticks: this.ticks,
+      tribes: this.tribes.map((t) => ({
+        ...t,
+        houses: t.houses.map((h) => ({ ...h })),
+        fields: [...t.fields],
+      })),
+      villagers: this.villagers.map((v) => ({ ...v, tribe: this.tribes.indexOf(v.tribe) })),
+      reserved,
+    };
+  }
+
+  load(s: PeopleSave): void {
+    this.villagers.length = 0;
+    this.tribes.length = 0;
+    for (const t of s.tribes) {
+      this.tribes.push({ ...t, houses: t.houses.map((h) => ({ ...h })), fields: [...t.fields] });
+    }
+    for (const v of s.villagers) {
+      const tribe = this.tribes[v.tribe];
+      if (!tribe) throw new Error(`Sauvegarde : village ${v.tribe} introuvable`);
+      this.villagers.push({ ...v, tribe });
+    }
+    this.reserved.fill(0);
+    for (const i of s.reserved) this.reserved[i] = 1;
+    this.rng.restore(s.rng);
+    this.nextId = s.nextId;
+    this.ticks = s.ticks;
+    this.heightsChanged = false;
   }
 
   get population(): number {

@@ -14,6 +14,7 @@ export interface InputHandlers {
   key(key: string): void;
   undo(): void;
   redo(): void;
+  save(): void;
 }
 
 export class Input {
@@ -134,7 +135,10 @@ export class Input {
     if (e.ctrlKey || e.metaKey) {
       // Les autres raccourcis avec Ctrl restent au navigateur.
       const k = e.key.toLowerCase();
-      if (k === 'z' || k === 'y') {
+      if (k === 's') {
+        e.preventDefault();
+        this.h.save();
+      } else if (k === 'z' || k === 'y') {
         e.preventDefault();
         if (k === 'y' || e.shiftKey) this.h.redo();
         else this.h.undo();

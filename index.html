@@ -101,6 +101,22 @@
         </div>
         <button class="btn" id="regen">Nouveau monde</button>
       </div>
+
+      <div class="section">
+        <div class="label">Partie <span>Ctrl S</span></div>
+        <div class="row">
+          <button class="btn" id="save" title="Sauvegarde rapide dans ce navigateur (Ctrl+S)">
+            Sauvegarder
+          </button>
+          <button class="btn" id="load" title="Reprendre la sauvegarde rapide" disabled>Charger</button>
+        </div>
+        <div class="row">
+          <button class="btn" id="export" title="Enregistrer la partie dans un fichier">Exporter</button>
+          <button class="btn" id="import" title="Ouvrir une partie depuis un fichier">Importer</button>
+        </div>
+        <input type="file" id="importFile" accept=".demiurge" hidden />
+        <div class="status" id="saveStatus" role="status">Sauvegarde automatique chaque minute</div>
+      </div>
     </aside>
 
     <div class="panel stats" aria-live="off">
@@ -124,6 +140,7 @@
       <span><kbd>P</kbd> pause</span>
       <span><kbd>V</kbd> vitesse</span>
       <span><kbd>Ctrl</kbd> <kbd>Z</kbd> annuler</span>
+      <span><kbd>Ctrl</kbd> <kbd>S</kbd> sauvegarder</span>
     </div>
 
     <div class="panel village" id="village" role="tooltip" hidden></div>

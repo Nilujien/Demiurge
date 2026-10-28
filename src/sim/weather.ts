@@ -29,6 +29,11 @@ export interface Cloud {
   alt: number;
 }
 
+export interface WeatherSave {
+  nextId: number;
+  clouds: Cloud[];
+}
+
 /** Météo : nuages de pluie déplacés par le vent. L'humidité du démiurge arrive au sol par eux. */
 export class Weather {
   readonly clouds: Cloud[] = [];
@@ -38,6 +43,16 @@ export class Weather {
 
   reset(): void {
     this.clouds.length = 0;
+  }
+
+  save(): WeatherSave {
+    return { nextId: this.nextId, clouds: this.clouds.map((c) => ({ ...c })) };
+  }
+
+  load(s: WeatherSave): void {
+    this.clouds.length = 0;
+    for (const c of s.clouds) this.clouds.push({ ...c });
+    this.nextId = s.nextId;
   }
 
   /** Charge en eau un nuage au-dessus de (x, z), en le créant au besoin. */

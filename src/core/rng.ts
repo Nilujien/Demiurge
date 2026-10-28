@@ -10,6 +10,15 @@ export class Rng {
     this.state = seed >>> 0 || 1;
   }
 
+  /** État interne, pour les sauvegardes : `restore(save())` reprend exactement la même suite. */
+  save(): number {
+    return this.state;
+  }
+
+  restore(state: number): void {
+    this.state = state | 0 || 1;
+  }
+
   /** Flottant uniforme dans [0, 1). */
   next(): number {
     this.state = (this.state + 0x6d2b79f5) | 0;

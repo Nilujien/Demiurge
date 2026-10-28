@@ -46,6 +46,10 @@ export interface HudActions {
   undo(): void;
   redo(): void;
   share(): Promise<boolean>;
+  save(): void;
+  load(): void;
+  exportFile(): void;
+  importFile(bytes: Uint8Array): void;
 }
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -137,6 +141,16 @@ export class Hud {
     });
     seed.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') seed.blur();
+    });
+    $('save').addEventListener('click', () => actions.save());
+    $('load').addEventListener('click', () => actions.load());
+    $('export').addEventListener('click', () => actions.exportFile());
+    const file = $<HTMLInputElement>('importFile');
+    $('import').addEventListener('click', () => file.click());
+    file.addEventListener('change', () => {
+      const f = file.files?.[0];
+      file.value = '';
+      if (f) void f.arrayBuffer().then((b) => actions.importFile(new Uint8Array(b)));
     });
     const share = $('share');
     share.addEventListener('click', () => {
@@ -244,6 +258,23 @@ export class Hud {
   setHistory(canUndo: boolean, canRedo: boolean): void {
     $<HTMLButtonElement>('undo').disabled = !canUndo;
     $<HTMLButtonElement>('redo').disabled = !canRedo;
+  }
+
+  setSeaLevel(level: number): void {
+    this.state.seaLevel = level;
+    $<HTMLInputElement>('sea').value = String(level);
+    $('seaOut').textContent = level.toFixed(1);
+  }
+
+  /** La sauvegarde rapide existe : le bouton Charger devient utilisable. */
+  setQuickSave(available: boolean): void {
+    $<HTMLButtonElement>('load').disabled = !available;
+  }
+
+  setSaveStatus(text: string, error = false): void {
+    const el = $('saveStatus');
+    el.textContent = text;
+    el.classList.toggle('error', error);
   }
 
   /** Affiche la graine du monde courant, sauf pendant que le joueur la modifie. */

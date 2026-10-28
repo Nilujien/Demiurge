@@ -11,14 +11,14 @@
 ## Flux d'une image
 
 ```
-Input ──► Hud.state (outil, pinceau, calque)
+Input ──► Hud.state (outil, pinceau, calque, vitesse)
   │
   ▼
 main.ts : boucle requestAnimationFrame
   ├─ IsoCamera.update        matrices, accrochage aux pixels
   ├─ raycastTerrain           pointeur → point du relief
-  ├─ applyTool                modifie World, lève les drapeaux
-  ├─ Simulation.tick × k      pas fixe à SIM_HZ, découplé du rendu
+  ├─ applyTool                modifie World, lève les drapeaux, nourrit StrokeHistory
+  ├─ Simulation.tick × k      pas fixe à SIM_HZ × vitesse, découplé du rendu
   ├─ Simulation.updateFlow    réseau d'écoulement, au plus 4 fois/s
   ├─ Renderer.sync            maillages, textures d'état, instances d'arbres
   └─ Renderer.render          passe monde basse résolution → passe finale
@@ -41,6 +41,12 @@ Le **réseau d'écoulement** (`Hydrology.computeFlow`) est plus coûteux et reca
 - l'intensité de cours d'eau est un `smoothstep` de cette accumulation. Elle sature l'humidité des berges et dépose des alluvions.
 
 Les paramètres sont regroupés en tête de module (`HYDRO`, `ECO`, `RAIN`, `PEOPLE`) et par sol dans `SOILS`.
+
+## Outils et historique (`src/tools`)
+
+`applyTool` applique un coup de pinceau pendant `dt` secondes. `StrokeHistory` rend les gestes réversibles : au début d'un geste, il retient l'outil ; chaque cellule que l'outil touche pour la première fois est photographiée avant modification, sur les seules grandeurs que l'outil change (relief, sol, fertilité ou arbres). À la fin du geste, il relève les nouvelles valeurs de ces cellules. Annuler ou rétablir ne réécrit que ces cellules, la simulation continue ailleurs ; un arbre ne réapparaît pas sur une cellule labourée ou bâtie entre-temps. Pluie et Peupler n'agissent pas sur la grille et ne s'annulent pas. La pile est bornée (`HISTORY_DEPTH`) et vidée à chaque nouveau monde.
+
+La graine du monde vit dans le fragment d'URL (`#seed=…`, `core/seed.ts`) : le déterminisme de la simulation suffit à redonner la même île à partir d'un lien.
 
 ## Rendu (`src/render`)
 

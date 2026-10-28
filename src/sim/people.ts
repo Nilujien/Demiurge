@@ -243,6 +243,23 @@ export class People {
     }
   }
 
+  /** Village dont le foyer ou une maison est le plus proche de (x, z), dans un rayon donné ; null sinon. */
+  tribeNear(x: number, z: number, radius: number): Tribe | null {
+    const n = this.world.n;
+    let best: Tribe | null = null;
+    let bestD = radius;
+    for (const t of this.tribes) {
+      for (const c of [t.home, ...t.houses.map((h) => h.cell)]) {
+        const d = Math.hypot((c % n) - x, Math.floor(c / n) - z);
+        if (d <= bestD) {
+          bestD = d;
+          best = t;
+        }
+      }
+    }
+    return best;
+  }
+
   /** Nombre d'habitants que les maisons achevées peuvent loger. */
   capacity(tribe: Tribe): number {
     let built = 0;

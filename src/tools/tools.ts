@@ -2,6 +2,7 @@ import { BASE, H_MAX, SNOW_LINE } from '../config';
 import { hash2 } from '../core/noise';
 import type { Simulation } from '../sim/simulation';
 import { Soil, soilDef, type SoilId } from '../sim/soils';
+import type { StrokeHistory } from './history';
 
 export type ToolId =
   'raise' | 'lower' | 'flatten' | 'soil' | 'fertilize' | 'seed' | 'rain' | 'cut' | 'people';
@@ -101,7 +102,8 @@ const TERRAFORM_SPEED = 7;
 /** Habitants qui apparaissent par seconde de pinceau « Peupler ». */
 const SETTLE_RATE = 3;
 
-export function applyTool(sim: Simulation, tool: ToolId, s: Stroke): void {
+/** `history` : geste en cours d'enregistrement, pour pouvoir l'annuler. */
+export function applyTool(sim: Simulation, tool: ToolId, s: Stroke, history?: StrokeHistory): void {
   if (tool === 'rain') {
     // L'eau du démiurge ne mouille pas le sol directement : elle forme un nuage qui pleut ensuite.
     sim.rain(s.x, s.z, s.radius, s.dt);
@@ -130,6 +132,7 @@ export function applyTool(sim: Simulation, tool: ToolId, s: Stroke): void {
       const k = 1 - (d / r) ** 2;
       const f = k * k; // atténuation douce vers le bord du pinceau
       const i = z * n + x;
+      history?.touch(i);
       switch (tool) {
         case 'raise':
           height[i] = Math.min(H_MAX - 1, height[i] + f * TERRAFORM_SPEED * s.dt);

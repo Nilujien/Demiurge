@@ -12,6 +12,8 @@ export interface InputHandlers {
   /** Début d'un geste de peinture (permet de relever l'altitude visée). */
   strokeStart(): void;
   key(key: string): void;
+  undo(): void;
+  redo(): void;
 }
 
 export class Input {
@@ -129,6 +131,16 @@ export class Input {
   private keyDown(e: KeyboardEvent): void {
     const t = e.target;
     if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement) return;
+    if (e.ctrlKey || e.metaKey) {
+      // Les autres raccourcis avec Ctrl restent au navigateur.
+      const k = e.key.toLowerCase();
+      if (k === 'z' || k === 'y') {
+        e.preventDefault();
+        if (k === 'y' || e.shiftKey) this.h.redo();
+        else this.h.undo();
+      }
+      return;
+    }
     if (e.key === ' ') {
       this.spaceDown = true;
       e.preventDefault();
